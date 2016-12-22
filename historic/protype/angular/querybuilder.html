@@ -1,0 +1,636 @@
+<!-- copyright Australian Greens 2014-2016 -->
+<script type="text/ng-template" id="querybuilder.html">
+  <div ng-include="'main_nav.html'" ></div>
+  <h1>Build a query
+    <button type="button" class="btn btn-sm btn-info"
+      title="Click here to flush the caches behind this list"
+      ng-click="vm.cacheFlush()">
+      Flush
+      <i class="fa fa-spinner fa-spin" ng-if="vm.flushing"></i>
+    </button>
+  </h1>
+
+  <uib-tabset>
+  <uib-tab heading="Build">
+    <div class="panel-body">
+      <h4>Include supporters who...</h4>
+    <filter-collection
+      root="vm.root_clause"
+      filters="vm.root_clause"
+      clausemeta="vm.clausemeta" >
+     </filter-collection>
+    </div>
+   </uib-tab>
+   <uib-tab
+     ng-if="vm.isDebug()">
+     <uib-tab-heading>Filter</uib-tab-heading>
+     <div class="panel-body">
+       <p>This is the filter definition. It is not relevant for most users but is
+       included here to allow trouble shooting the filtering engine. System
+       administrators can use these expressions to generate lists in other
+       contexts.<p>
+       <pre>{{vm.clean_root_clause | json }}</pre>
+       <p>This is the working copy of the query the that the Angular form is generating:</p>
+       <pre>{{vm.root_clause | json }}</pre>
+     </div>
+     </div>
+   </uib-tab>
+   <uib-tab select="previewing()" >
+    <uib-tab-heading>
+      <span title="status:{{vm.status}}">Preview</span>
+      <i class="fa fa-check-square" ng-if="vm.status=='ok' && vm.data"></i>
+      <i class="fa fa-spinner fa-spin" ng-if="vm.status=='fetching'"></i>
+      <i class="fa fa-warning" ng-if="vm.status=='failed'"></i>
+    </uib-tab-heading>
+    <div ng-if="vm.status=='failed'" class="alert alert-warning">
+      <div >Server error</div>
+      <div ng-if="vm.data.is_error">ooops {{vm.data.error_message}}</div>
+    </div>
+    <caption>{{vm.data.count}} records
+        <span
+          ng-if="vm.data.count != vm.data.contacts.length"
+          class="warning">(only first {{vm.data.contacts.length }} displayed)
+        </span>
+    </caption>
+    <table tr-ng-grid
+      items="vm.data.contacts"
+      page-items="50">
+      <thead>
+        <tr>
+          <th field-name="contact_id" cell-width="5em"></th>
+          <th field-name="contact"> </th>
+          <th field-name="allocation_status" cell-width="1em"></th>
+          <th field-name="pending_note"> </th>
+          <th field-name="phone" cell-width="7em"></th> </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <a href='' ng-click="goToEntity('contact', gridDisplayItem.contact_id)"
+              title="open page for {{slot.name}}">
+              <i class="fa fa-user text-success"></i>
+            </a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </uib-tab>
+  <uib-tab heading="Trace" ng-if="vm.isDebug() && vm.data.trace">
+     <p>This is the log of the steps the query engine whent through to generate
+     the list. It is included here to allow trouble shooting and performance
+     tuning. The numbers at the start of each line are the milliseconds
+     ellapsed at each point.</p>
+    <pre>
+      <ul>
+        <li ng-repeat="trace in vm.data.trace track by $index">{{trace}}</li>
+      </ul>
+    </pre>
+  </uib-tab>
+  <uib-tab heading="Save">
+    <div class="panel-body">
+      <filter-catch filters="vm.clean_root_clause">
+       </filter-catch>
+    </div>
+  </uib-tab>
+</uib-tabset>
+
+</script>
+
+<script type="text/ng-template" id="agctypeahaed.html">
+  <!-- <pre> {{vm | json }} </pre> -->
+  <div class="well">
+    <div class="well">
+    <span ng-repeat="entity in vm.values">
+      <span class="label label-info">
+        <span title="{{entity.id}}"> {{entity.label}}</span>
+        <button
+          title="delete this {{vm.type}}"
+          ng-click="vm.delete_entity(entity)" class="button badge btn-sm btn-danger"><i class="fa fa-times"></i></button>
+      </span>
+      <span ng-if="!$last" class="button badge">or</span>
+    </span>
+  </div>
+
+  <input class="form-control"
+  placeholder="Enter {{vm.type}} name to search"
+    type="search"
+    ng-model="vm.search"
+    typeahead-wait-ms="300"
+    typeahead-min-length="2"
+    typeahead-on-select="vm.Selected($item, $model, $label)"
+    uib-typeahead="g as g.label for g in vm.serverFind($viewValue)"
+    >
+  </div>
+</script>
+
+<script type="text/ng-template" id="filtercollection.html">
+<h4 ng-if="vm.filters.id=='not'">do <button type="button" ng-click="vm.toggle(vm.filters)" class="btn btn-primary"><span>not</span></button></h4>
+<h4 ng-if="vm.filters.id!='not'">
+    meet
+    <button type="button" ng-click="vm.toggle(vm.filters)" class="btn btn-success">
+      <span ng-if="vm.filters.id=='union'">any</span>
+      <span ng-if="vm.filters.id=='intersection'">all</span>
+    </button> of the following:
+</h4>
+<div >
+  <uib-accordion close-others="false">
+    <div ng-repeat="clause in vm.filters.filter track by $index">
+    <div ng-if="!$first" ng-hide="clause.deleted" class="condi-text">
+      <span ng-if="vm.filters.id=='root' || vm.filters.id=='intersection'">And they</span>
+      <span ng-if="vm.filters.id=='union'">Or they</span>
+    </div>
+    <uib-accordion-group
+      class="panel panel-primary"
+      is-open="clause.open"
+      ng-hide="clause.deleted">
+      <uib-accordion-heading>
+      <i class="fa fa-caret-down" ng-if="clause.open"></i>
+      <i class="fa fa-caret-right" ng-if="!clause.open"></i>
+      {{ vm.clauseTitle(clause) | title}}
+        <button type="button"
+          title="delete this filter"
+          ng-click="vm.delete_clause(clause)"
+          class="btn btn-danger btn-xs pull-right"><i class="fa fa-times"></i></button>
+        <button type="button"
+          ng-if="clause.id!=='not'"
+          title="negate this filter"
+          ng-click="vm.negate_clause(clause)"
+          class="btn btn-warning btn-xs pull-right">
+          NOT
+        </button>
+      </uib-accordion-heading>
+      <div ng-if="vm.isBoolean(clause)">
+        <filter-collection
+          clausemeta="vm.clausemeta"
+          root="vm.root"
+          filters="clause">
+        </filter-collection>
+      </div>
+      <div ng-if="!vm.isBoolean(clause)">
+        <div ng-include="'filterswitch.html'"></div>
+      </div>
+      <div ng-if="vm.isDebug()">
+        <div>clause: {{ clause | json }}</div>
+      </div>
+    </uib-accordion-group>
+    </div>
+  </uib-accordion>
+
+  <div class="btn-group" uib-dropdown is-open="vm.status.isopen">
+    <button
+      ng-if="vm.filters.id !=='not' || !vm.filters.filter.length"
+      id="single-button"
+      type="button"
+      class="btn btn-success"
+      uib-dropdown-toggle
+      ng-disabled="vm.disabled">
+      <span ng-switch="vm.filters.id">
+        <span ng-switch-when="intersection">And they</span>
+        <span ng-switch-when="union">Or they</span>
+        <span ng-switch-when="not">Exclude by</span>
+        <span ng-switch-default>{{vm.filters.id}} by</span>
+      <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu" role="menu" aria-labelledby="single-button">
+      <li
+      ng-repeat="meta in vm.clausemeta | filterIsNotSame:vm.filters.id"
+      role="menuitem"
+      ><a href=""
+        ng-click="vm.add_new_clause(vm.filters, meta)">{{meta.label}}</a></li>
+
+      <li
+      ng-repeat="list in vm.lists | filter:vm.isAddableList"
+      role="menuitem"
+      ><a href=""
+        ng-click="vm.add_new_clause_from_list(vm.filters, list)">
+        <i class="fa fa-list"></i>
+        {{list.name}}</a>
+      </li>
+
+    </ul>
+  </div>
+
+</div>
+</script>
+
+<script type="text/ng-template" id="filterswitch.html">
+<div ng-switch="clause.id">
+  <filter-tags ng-switch-when="tag" clause="clause"></filter-tags>
+  <filter-groups ng-switch-when="group" clause="clause" > </filter-groups>
+  <filter-polys ng-switch-when="poly" clause="clause" > </filter-polys>
+  <filter-status ng-switch-when="status" clause="clause"></filter-status>
+  <filter-member ng-switch-when="member" clause="clause"></filter-member>
+  <filter-task ng-switch-when="task" clause="clause"></filter-task>
+  <filter-activity ng-switch-when="activity" clause="clause"></filter-activity>
+  <filter-phone ng-switch-when="phone" clause="clause"></filter-phone>
+  <filter-email ng-switch-when="email" clause="clause"></filter-email>
+  <filter-event ng-switch-when="event" clause="clause"></filter-event>
+  <filter-mailing ng-switch-when="mailing" clause="clause"></filter-mailing>
+  <filter-roster ng-switch-when="roster" clause="clause"></filter-roster>
+  <filter-pod ng-switch-when="pod" clause="clause"></filter-pod>
+  <filter-user ng-switch-when="user" clause="clause"></filter-user>
+  <filter-profile ng-switch-when="profile" clause="clause"></filter-profile>
+  <filter-raw ng-switch-when="raw" clause="clause"></filter-raw>
+  <div ng-switch-default>
+    <h4>unknown filter:</h4>
+    <pre>type: {{ clause.id | json }}</pre>
+  </div>
+</div>
+</script>
+
+<script type="text/ng-template" id="filtertags.html">
+<label class="col-md-2 control-label">
+  are tagged with one or more
+</label>
+<div class="col-md-10">
+  <select
+    ng-model="vm.clause.filter"
+    multiple="true"
+    name="tag_id"
+    class="form-control"
+    ng-options="id as tag for (id, tag) in vm.state_tags">
+  </select>
+</div>
+</script>
+
+<script type="text/ng-template" id="filtergroups.html">
+<label class="col-md-2 control-label">
+  are in group
+</label>
+<div class="col-md-10">
+  <agc-type-ahead type="group" values="vm.options"> </agc-type-ahead>
+</div>
+</script>
+
+<script type="text/ng-template" id="filterpolys.html">
+<label class="col-md-2 control-label">
+  are in area
+</label>
+<div class="col-md-10">
+  <agc-type-ahead type="poly" values="vm.options"> </agc-type-ahead>
+</div>
+</script>
+
+<script type="text/ng-template" id="filterstatus.html">
+<label class="col-md-2 control-label">
+  have a status of
+</label>
+<div class="col-md-10">
+  <select ng-model="vm.clause.filter" multiple
+    name="selectstatus" class="form-control"
+   data-ng-attr-size={{vm.select_size}}
+    ng-options="id as tag for (id, tag) in vm.ems_statuses">
+  </select>
+</div>
+</script>
+
+<script type="text/ng-template" id="filtermember.html">
+<label class="col-md-2 control-label">
+  are in the category of
+</label>
+<div class="col-md-10">
+  <select ng-model="vm.clause.filter"
+    name="member" class="form-control"
+    ng-options="id as status for (id, status) in vm.member_status_options">
+   a</select>
+</div>
+</script>
+
+
+<script type="text/ng-template" id="filtertasks.html">
+<label class="col-md-1 control-label">
+  have indicated
+</label>
+<div class="col-md-1">
+  <select ng-model="vm.options.value"
+    multiple
+    name="values" class="form-control"
+    ng-options="v.id as v.label for v in vm.values">
+  </select>
+</div>
+
+<label class="col-md-1 control-label">
+  to the task of
+</label>
+<div class="col-md-2">
+  <select ng-model="vm.options.task"
+    multiple
+    size="10"
+    name="task" class="form-control"
+    ng-options="id as label for (id, label) in vm.standard_tasks"">
+  </select>
+</div>
+
+<label class="col-md-1 control-label">
+during
+</label>
+<div class="col-md-2">
+  <select ng-model="vm.options.election"
+    multiple
+    size="10"
+    name="election" class="form-control"
+    ng-options="e.taskprefix as e.name for e in vm.elections | orderBy:'clean_date':true">
+  </select>
+</div>
+
+<label class="col-md-1 control-label">
+with note tag of
+</label>
+<div class="col-md-3">
+  <input type="text" class="form-control" ng-model="vm.options.note">
+</div>
+
+</script>
+
+<!-- activities -->
+<script type="text/ng-template" id="filteractivitys.html">
+<div class="form-inline">
+
+  <div class="form-group">
+    <label class="control-label">
+      have a recorded activity
+    </label>
+    <select ng-model="vm.options.activity_type_id"
+      class="form-control"
+      ng-options="id as label for (id, label) in vm.activity_types">
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label class="control-label">
+     that is
+    </label>
+    <select ng-model="vm.options.status_id"
+      multiple size=5
+      class="form-control"
+      ng-options="id as label for (id, label) in vm.status_types">
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label class="control-label">in the period</label>
+    <div class="input-group">
+      <span class="input-group-addon">from</span>
+      <input type="number" class="form-control"
+        ng-model="vm.options.start_hours"
+        placeholder="Starting" aria-describedby="basic-addon2">
+      <span class="input-group-addon">to</span>
+      <input type="number" class="form-control"
+        ng-model="vm.options.end_hours"
+        placeholder="Ending">
+      <span class="input-group-addon">days ago</span>
+    </div>
+  </div>
+</div>
+</script>
+<!-- raw -->
+<script type="text/ng-template" id="filterraw.html">
+
+  <div class="form-group">
+    <label class="col-md-2 control-label">
+          are in
+    </label>
+    <div class="col-md-10"> {{vm.options}} </div>
+  </div>
+</script>
+
+<!-- phone -->
+<script type="text/ng-template" id="filterphone.html">
+  <div class="form-group">
+    <label class="col-md-2 control-label">
+          have
+    </label>
+    <div class="col-md-10">
+      <select ng-model="vm.options.type"
+        class="form-control"
+        ng-options="id as label for (id, label) in vm.phone_types">
+      </select>
+    </div>
+  </div>
+</script>
+
+<!-- email -->
+<script type="text/ng-template" id="filteremail.html">
+  <div class="form-group">
+    <label class="col-md-2 control-label">
+          have
+    </label>
+    <div class="col-md-10">
+      <select ng-model="vm.options.type"
+        class="form-control"
+        ng-options="o.id as o.label for o in vm.type_options"">
+      </select>
+    </div>
+  </div>
+</script>
+
+<!-- events -->
+<script type="text/ng-template" id="filterevents.html">
+<div class="form-inline">
+  <div class="form-group">
+    <label class="control-label">
+      have event attendance
+    </label>
+    <!--<div class="input-group">
+      <select ng-model="vm.options.participation_class"
+        class="form-control"
+        ng-options="e.id as e.name for e in vm.attendance_class_options">
+      </select>
+    </div> -->
+    <div class="input-group">
+      <select ng-model="vm.options.participation_status"
+        multiple size=10
+        class="form-control"
+        ng-options="e.id as e.name group by e.class for e in vm.attendance_status_options" >
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="control-label">
+        for event
+      </label>
+      <agc-type-ahead type="event" values="vm.options.events"> </agc-type-ahead>
+    </div>
+  </div>
+</div>
+</script>
+
+
+<!-- mailings -->
+<script type="text/ng-template" id="filtermailings.html">
+<div class="form-inline">
+  <div class="form-group">
+    <label class="control-label">
+      received mailing
+    </label>
+    <agc-type-ahead type="mailing" values="vm.options.mailings"> </agc-type-ahead>
+  </div>
+
+  <div class="form-group">
+    <label class="control-label">
+      and
+    </label>
+    <select ng-model="vm.options.mode"
+      name="election" class="form-control"
+      ng-options="id as label for (id, label) in vm.mailing_status_options">
+    </select>
+  </div>
+</div>
+</script>
+
+<!-- roster -->
+<script type="text/ng-template" id="filterrosters.html">
+<div class="form-inline">
+  <div class="form-group">
+    <label class="control-label">
+      are
+    </label>
+    <select ng-model="vm.options.mode"
+      name="task" class="form-control"
+      ng-options="o.id as o.label for o in vm.mode_options"">
+    </select>
+  </div>
+  <div class="form-group">
+    <label class="control-label">
+      during
+    </label>
+    <select ng-model="vm.options.election_id"
+      name="election" class="form-control"
+      ng-options="e.id as e.name for e in vm.elections">
+    </select>
+  </div>
+  <div class="form-group">
+    <label class="control-label">
+      at
+    </label>
+  <select ng-model="vm.options.time"
+    name="task" class="form-control"
+    ng-options="id as label for (id, label) in vm.time_options">
+  </select>
+  <!--
+  <pre>options {{ vm.options | json }}</pre>
+  <pre>clause {{ vm.clause | json }}</pre>
+  -->
+</div>
+</script>
+
+<!-- pod -->
+<script type="text/ng-template" id="filterpod.html">
+<div class="form-inline">
+  <div class="form-group">
+    <label class="control-label">
+      have role
+    </label>
+    <select ng-model="vm.options.role"
+      name="task" class="form-control"
+      ng-options="o.id as o.label for o in vm.role_options">
+    </select>
+
+    <label class="control-label">
+      in pod
+    </label>
+      <input class="form-control"
+        id="podFind" placeholder="Enter Pod name to search"
+        type="search"
+        ng-model="vm.pod"
+        typeahead-wait-ms="300"
+        typeahead-min-length="2"
+        typeahead-on-select="vm.podSelected($item, $model, $label)"
+        uib-typeahead="g as g.label for g in vm.serverFind('contact.ems8', 'org:committees_and_working_groups', $viewValue)"
+        autocomplete="off">
+
+  </div>
+    <!--
+    <pre>options {{ vm.options | json }}</pre>
+    <pre>clause {{ vm.clause | json }}</pre>
+    -->
+  </div>
+</script>
+
+<!-- user -->
+<script type="text/ng-template" id="filteruser.html">
+
+<div class="form-horizontal">
+  <div class="form-group">
+    <label class="control-label col-md-2">
+      have role
+    </label>
+    <div class="col-md-10" >
+      <select
+        class="form-control col-md-10"
+        ng-model="vm.options.rids"
+        multiple
+        data-ng-attr-size={{vm.select_size}}
+        name="task" class="form-control"
+        ng-options="id as label for (id, label) in vm.role_options">
+      </select>
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="control-label col-md-2">
+       in area
+    </label>
+    <agc-type-ahead
+      class="col-md-10"
+      type="poly" values="vm.options.polys"> </agc-type-ahead>
+  </div>
+  <div class="form-group">
+    <label class="control-label col-md-6">
+       and sub-areas over-lapping by at least
+    </label>
+    <div class="col-md-6 input-group">
+      <input
+        class="form-control"
+        type="number"
+        min="0" max="100" step="1" required
+        ng-model="vm.options.min_overlap"> </input>
+      <span class="input-group-addon">%</span>
+    </div>
+
+
+
+
+  </div>
+</div>
+    <!--
+    <pre>options {{ vm.options | json }}</pre>
+    <pre>clause {{ vm.clause | json }}</pre>
+    -->
+</script>
+
+<!-- skill & intererst-->
+<script type="text/ng-template" id="filterprofile.html">
+<div class="container-fluid">
+  <div class="row form-group">
+  <label class="col-md-2 control-label">
+    {{ vm.options.table | title}}s </label>
+    <agc-type-ahead
+    type="term"
+    filter="{{ vm.options.table == 'skill' ? 2 : 1 }}"
+    values="vm.options.term_id"> </agc-type-ahead>
+  </div>
+  <div class="row form-group" ng-repeat="attribute in vm.options.attributes">
+      <label class="col-md-4 control-label text-right">
+        {{ attribute.attribute | title}} from </label>
+      <div class="col-md-3 text-right">
+        <select ng-model="attribute.lo"
+          class="form-control"
+        ng-options="id as label for (id, label) in vm.scale">
+      </select>
+      </div>
+      <label class="col-md-1 control-label text-right"> to </label>
+      <div class="col-md-3">
+        <select ng-model="attribute.hi"
+        class="form-control"
+        ng-options="id as label for (id, label) in vm.scale">
+      </select>
+    </div>
+  </div>
+</div>
+  <!--
+  <pre>options {{ vm.options | json }}</pre>
+  <pre>clause {{ vm.clause | json }}</pre>
+  -->
+</div>
+</script>
+
