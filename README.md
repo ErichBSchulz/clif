@@ -60,3 +60,7 @@ Combolists and all the pre-qif formats
 Initially making `filters` the preferred interchange format. Much cleaner to
 use a single filter, which maybe an `intersection` or `union` type.
 
+# Open questions
+
+* overall architecture
+* support API V3 or V4
