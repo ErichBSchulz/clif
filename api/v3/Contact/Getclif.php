@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Contact.Get API specification
+ * Contact.Getcliff API specification
  *
  * @param array $spec description of fields supported by this API call
  * @return void
@@ -12,7 +12,8 @@ function _civicrm_api3_contact_getclif_spec(&$spec) {
 }
 
 /**
- * Contact.Get API
+ * Contact.Getcliff API
+ *
  * @param array $params
  * @return array API result descriptor
  * @see civicrm_api3_create_success

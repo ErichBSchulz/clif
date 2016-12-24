@@ -64,3 +64,4 @@ use a single filter, which maybe an `intersection` or `union` type.
 
 * overall architecture
 * support API V3 or V4
+* change id to type ?

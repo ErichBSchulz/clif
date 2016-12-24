@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <extension key="au.org.greens.clif" type="module">
   <file>clif</file>
-  <name>Contact list interchange format</name>
+  <name>Contact List Interchange Format</name>
     <description>API for expressing complex queries based on simple cacheable
       sublists.</description>
   <license>AGPL-3.0</license>
