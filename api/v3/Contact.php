@@ -42,14 +42,17 @@ function civicrm_api3_contact_getclif($params) {
     'Get'); // todo get or Get??
 }
 
-  $params['return'] = 'id';
-
-  return civicrm_api3('Contact', 'get', $params);
-
   class AgcCliff {
 
     public static function get($params) {
       return 'hello world';
     }
+
+    // todo
+    // - type switch
+    // - validation checker
+    // - cache hack
+//  $params['return'] = 'id';
+//  return civicrm_api3('Contact', 'get', $params);
 
   }
