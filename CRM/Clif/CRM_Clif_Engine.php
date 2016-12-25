@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Contact List Interchange Format engine clase
+ * Contact List Interchange Format (CLIF) engine clase
  *
  * todo
  * - type switch
@@ -17,30 +17,44 @@ class CRM_Clif_Engine {
   /**
    * AgcBook object (wrapper for directory holding cache files)
    */
-  private $book;
+  private $cache;
   const BOOKNAME = 'subsets';
 
   /**
-   * Set on construction, immutable list of filters
+   * Immutable root CLIF set on construction
    */
-  private $filter;
+  private $root;
 
   /**
    * List of contact lists by key
    */
   private $rawLists = [];
 
-  public $contacts = [];
-  // debug:
-  public $trace = [];
-  public $segments = []; // profiling data
-  public $start = 0;
+  /**
+   * List of contact lists by key
+   */
+  private $contacts = [];
+
+  /**
+   * Array of trace reports
+   */
+  private $trace = [];
+
+  /**
+   * Array of profiling times
+   */
+  private $segments = [];
+
+  /**
+   * Integer millisecond start time
+   */
+  private $start = 0;
 
   /**
    * Add a time-stamped record note to the trace record:
    * @param string $msg
    */
-  public function trace($msg) {
+  private function trace($msg) {
     if (!$this->start) {
       $this->start = microtime(true);
     }
@@ -50,14 +64,11 @@ class CRM_Clif_Engine {
 
   /**
    * Elapsed time in milliseconds
+   * @todo merge into trace()
    */
-  public function elapsed() {
+  private function elapsed() {
     $time = microtime(true);
     return round(($time - $this->start) * 1000);
-  }
-
-  public function getFilters() {
-    return $this->filter[0]['filter'];
   }
 
   private function start($task) {
@@ -89,6 +100,10 @@ class CRM_Clif_Engine {
     $this->clif = $p['clif'];
   }
 
+  private function getFilters() {
+    return $this->root;
+  }
+
   /**
    * Reset the cache
    *
@@ -106,7 +121,7 @@ class CRM_Clif_Engine {
     if ($chapters) {
       $count = 0;
       foreach ($chapters AS $chapter) {
-        $result = $this->book->deleteChapter($chapter);
+        $result = $this->cache->deleteChapter($chapter);
         $this->trace($chapter . ($result ? '' : ' not') . ' cleared');
         if ($result) {
           $count++;
@@ -115,7 +130,7 @@ class CRM_Clif_Engine {
       return $count;
     }
     else {
-      $this->book->destroy();
+      $this->cache->destroy();
     }
   }
 
@@ -125,24 +140,24 @@ class CRM_Clif_Engine {
    * @tested via quick.clearcache
    */
   function listCache() {
-    return $this->book->listChapters();
+    return $this->cache->listChapters();
   }
 
   /**
    * Generates this list if not already and counts the contacts.
    * @return integer
    */
-  public function count() {
+  private function count() {
     return count($this->getContacts());
   }
 
   /**
    * Generates this list if not already and provides a list of contact IDs
-   * @return string eg "5,6,324" ("-1" if empty)
+   * @return array of integers
+   * @todo define behaviour with empty list
    */
   public function contactIds() {
-    //        echo "\nfilter: " . json_encode($this->filter) . "";
-    return AgcDb::makeQuickUnsafeIntList(array_keys($this->getContacts()));
+    return array_keys($this->getContacts());
   }
 
   /**
@@ -181,57 +196,57 @@ class CRM_Clif_Engine {
    * @param filter mixed
    * @return string
    */
-  private function describe($filter) {
-    return is_array($filter['filter'])
-      ? count($filter['filter']) . ' records'
-      : $filter['filter'];
+  private function describe($clif) {
+    return is_array($clif['params'])
+      ? count($clif['params']) . ' records'
+      : $clif['params'];
   }
 
   /**
    * Fetch all raw lists and place in the $rawLists property
    *
-   * @param &$filters - collection of filters in [id, filter] format
+   * @param &$clifs - collection of filters in [id, filter] format
    * @param $params = []
    *
-   * Adds the following to each $filter row:
+   * Adds the following to each $clif row:
    * - key
    * - description
    *
    * Caches the list of contacts in $this->rawLists[$key]
    */
-  private function loadRawLists(&$filters, $params = []) {
+  private function loadRawLists(&$clifs, $params = []) {
     $defaults = [
       'dry_run' => false
       ];
     // merge params in with defaults
     $p = $params + $defaults;
-    //    echo 'filters $$' .gettype($filters) . '$$' . json_encode($filters) . '$$';
-    if (!is_array($filters)) {
+    //    echo 'filters $$' .gettype($clifs) . '$$' . json_encode($clifs) . '$$';
+    if (!is_array($clifs)) {
       throw new Exception ('filters must be an array');
     }
-    foreach ($filters AS &$filter) {
-      $key = $this->filterToKey($filter['id'], $filter['filter']);
-      if (!(isset($filter['id']) && isset($filter['filter']))) {
-        echo 'bad filter: [' . json_encode($filter) . ']' .
+    foreach ($clifs AS &$clif) {
+      $key = $this->filterToKey($clif['type'], $clif['params']);
+      if (!(isset($clif['type']) && isset($clif['params']))) {
+        echo 'bad filter: [' . json_encode($clif) . ']' .
             "\n" .  AgcDev::getBacktrace();
         throw new Exception ('bad filter');
       }
-      $filter['description'] = self::describe($filter);
-      $this->trace("starting $filter[id] - $filter[description]");
-      $filter['key'] = $key;
+      $clif['description'] = self::describe($clif);
+      $this->trace("starting $clif[id] - $clif[description]");
+      $clif['key'] = $key;
       if (!isset($this->rawLists[$key])) {
-        if (in_array($filter['id'], ['union', 'intersection', 'not'])) {
-          $this->loadRawLists($filter['filter'], $p);
+        if (in_array($clif['type'], ['union', 'intersection', 'not'])) {
+          $this->loadRawLists($clif['params'], $p);
           if (!$p['dry_run']) {
-            switch ($filter['id']) {
+            switch ($clif['type']) {
             case 'union':
-              $list = $this->union($filter['filter']);
+              $list = $this->union($clif['params']);
               break;
             case 'intersection':
-              $list = $this->intersect($filter['filter']);
+              $list = $this->intersect($clif['params']);
               break;
             case 'not':
-              $list = $this->not($filter['filter']);
+              $list = $this->not($clif['params']);
               break;
             }
           }
@@ -239,7 +254,7 @@ class CRM_Clif_Engine {
         else {
           $this->start('get');
           // get the list (either from cache or generating raw
-          $list = $this->getList($filter['id'], $filter['filter'], $p);
+          $list = $this->getList($clif['type'], $clif['params'], $p);
           $this->stop('get');
         }
         if (!$p['dry_run']) {
@@ -257,14 +272,14 @@ class CRM_Clif_Engine {
    * Finds the intersection between sets (Boolean AND operation)
    * @return array in "index format" (key being contact_id)
    */
-  private function intersect($filters) {
+  private function intersect($clifs) {
     $this->trace('starting intersect');
     $index = []; // used sort lists from smallest to largest
     $contacts = false;
     // generate a size index
-    foreach ($filters AS $filter) {
+    foreach ($clifs AS $clif) {
       // fixme should extract out the "nots" in this loop to be subtracted after
-      $index[$filter['key']] = count($this->rawLists[$filter['key']]);
+      $index[$clif['key']] = count($this->rawLists[$clif['key']]);
     }
     // sort the index so the smallest lists are first
     asort($index);
@@ -293,17 +308,17 @@ class CRM_Clif_Engine {
    * Finds the union between sets (Boolean OR operation)
    * @return array in "index format" (currently key being contact_id)
    */
-  private function union($filters) {
+  private function union($clifs) {
     $this->trace('starting union');
     $contacts = false;
     // loop over lists, starting with smallest
-    foreach ($filters AS $filter) {
+    foreach ($clifs AS $clif) {
       if ($contacts===false) {
-        $contacts = $this->rawLists[$filter['key']];
+        $contacts = $this->rawLists[$clif['key']];
       }
       else {
         $this->start('merge');
-        $contacts = $contacts + $this->rawLists[$filter['key']];
+        $contacts = $contacts + $this->rawLists[$clif['key']];
         $this->stop('merge');
       }
       $this->trace("now " . count($contacts) . " contacts");
@@ -316,16 +331,16 @@ class CRM_Clif_Engine {
    * Reliably negate a set
    * @return array in "index format" (currently key being contact_id)
    */
-  private function not($filters) {
+  private function not($clifs) {
     $this->trace('starting negation');
     $this->start('negation');
-    if (count($filters) != 1) {
+    if (count($clifs) != 1) {
       throw new Exception ('can only negate a single clause');
     }
     $contacts = $this->getList('all', 'all');
     $this->trace("from " . count($contacts) . " contacts");
-    $filter = $filters[0];
-    $contacts = array_diff_key($contacts, $this->rawLists[$filter['key']]);
+    $clif = $clifs[0];
+    $contacts = array_diff_key($contacts, $this->rawLists[$clif['key']]);
     $this->trace("now " . count($contacts) . " contacts");
     $this->trace('done negation');
     $this->stop('negation');
@@ -333,35 +348,18 @@ class CRM_Clif_Engine {
   }
 
   /**
-   * Add a list using a boolean operator
-   * @param $operator string union|intersection
-   * @param $filters array
-   * @return filters in QIF format
-   */
-  public static function addBooleanFilters($operator, $filters) {
-    switch ((int)count($filters)) {
-    case 0:
-      throw new Exception ('bad filters');
-    case 1:
-      return reset($filters); // return the single element
-    default: // more than one:
-      return ['id' => $operator,  'filter' => $filters];
-    }
-  }
-
-  /**
    * Generates this list if not already
    * @return array in "index format" (currently key being contact_id)
    */
-  public function getContacts() {
+  private function getContacts() {
     $log = ['type' => 'get', 'started' => microtime(true)];
     $this->trace('starting get');
     // list already generated, so return that and get out of here:
     if ($this->contacts) {
       return $this->contacts;
     }
-    $this->loadRawLists($this->filter);
-    $this->contacts = $this->rawLists[$this->filter[0]['key']];
+    $this->loadRawLists($this->root);
+    $this->contacts = $this->rawLists[$this->root[0]['key']];
     AgcDev::log($log);
     return $this->contacts;
   }
@@ -370,11 +368,11 @@ class CRM_Clif_Engine {
    * Get a list of chapters for this filter
    * @return array
    */
-  public function getCacheChapters() {
+  private function getCacheChapters() {
     $log = ['type' => 'getting chapters', 'started' => microtime(true)];
     $this->trace('starting get chapters');
     $this->start('get chapters');
-    $this->loadRawLists($this->filter, ['dry_run' => true]);
+    $this->loadRawLists($this->root, ['dry_run' => true]);
     $this->stop('get chapters');
     return array_keys($this->chapters);
   }
@@ -383,12 +381,12 @@ class CRM_Clif_Engine {
    * Validates a filter
    * @return false (on valid) and string on error
    */
-  public function isInvalid() {
+  private function isInvalid() {
     $log = ['type' => 'validating', 'started' => microtime(true)];
     $this->trace('starting get chapters');
     $this->start('get chapters');
     try {
-      $this->loadRawLists($this->filter, ['dry_run' => true]);
+      $this->loadRawLists($this->root, ['dry_run' => true]);
       // we got here so all good:
       $error = false;
     } catch (Exception $e) {
@@ -405,29 +403,27 @@ class CRM_Clif_Engine {
    * Fetch a list from cache or from database
    * Attempts a cache read first with `attemptFilterCacheRead())`.
    * If no cache hit calls `buildSqlMeta()` then `sqlToIdIndex()` and `cacheWrite()`
-   * @param $filter_id
-   * @param $filter
+   * @param $clif_type
+   * @param $clif
    * @returns a list in "ID index format"
    */
-  public function getList($filter_id, $filter, $params = []) {
+  private function getList($clif_type, $clif, $params = []) {
     $defaults = [
       'dry_run' => false
       ];
     // merge params in with defaults
     $p = $params + $defaults;
-    if ($filter_id == 'raw') {
-      $this->trace('get raw ' . count($filter) . ' records');
-      return $filter; // not cachable raw id list
+    if ($clif_type == 'raw') {
+      $this->trace('get raw ' . count($clif) . ' records');
+      return $clif; // not cachable raw id list
     }
     // make a unique key for this filter
-    $key = self::filterToKey($filter_id, $filter);
+    $key = self::filterToKey($clif_type, $clif);
     // hash the key to filename safe string:
-    $chapter = self::filterChapter($filter_id, $key);
+    $chapter = self::filterChapter($clif_type, $key);
     $this->chapters[$chapter] = true;
-    // echo "\n\nfilter_id: $filter_id\nfilter: " . json_encode($filter);
-    // do not cache phone bank allocations:
-    $no_cache = ($filter_id == 'primary' && substr($filter, 0, 3) == '!pa')
-      OR $p['dry_run'];
+    // @todo - decide pattern for marking some filters as non-cachalbe
+    $no_cache = false;
     $this->trace("key: $key");
     $this->trace("chapter: $chapter");
     // attempt cache load
@@ -437,7 +433,7 @@ class CRM_Clif_Engine {
     }
     else {
       // get meta ([sql, contact_id])
-      $meta = $this->buildSqlMeta($filter_id, $filter);
+      $meta = $this->buildSqlMeta($clif_type, $clif);
       $this->trace("sql:\n" .$meta['sql']);
       if ($p['dry_run']) {
         return [];
@@ -457,8 +453,8 @@ class CRM_Clif_Engine {
    *
    * This is the main switch board #futurerole
    *
-   * @param $filter_id string uid|poly|primary|task etc
-   * @param $filter filter parameters
+   * @param $clif_type string uid|poly|primary|task etc
+   * @param $clif filter parameters
    * @returns array
    * - sql
    * - contact_id field name
@@ -466,11 +462,11 @@ class CRM_Clif_Engine {
    * - [future] cacheable (defaul true)
    * @todo - extend to return cachable status and a description
    */
-  public function buildSqlMeta($filter_id, $filter) {
-    switch ($filter_id) {
+  private function buildSqlMeta($clif_type, $clif) {
+    switch ($clif_type) {
     case 'uid': // deprecated - see `acl`
       return [
-        'sql' => AgcPerm::contactSql(['uid' => $filter]),
+        'sql' => AgcPerm::contactSql(['uid' => $clif]),
           'contact_id' => 'contact_id'
           ];
     case 'all': // this is occasionally required for negation '
@@ -483,20 +479,20 @@ class CRM_Clif_Engine {
         'sql' => "SELECT -1 AS entity_id",
         'contact_id' => 'entity_id'];
     default:
-      throw new Exception('bad filter_id: ' . $filter_id);
+      throw new Exception('bad filter type: ' . $clif_type);
     }
   }
 
   /**
    * #futurerole
    *
-   * @param $chapter - book "chapter" ID
+   * @param $chapter - cache "chapter" ID
    * @param $key - hashed absolute identifier of list
    * @param $list
    * @returns a list if successful, otherwise returns null
    */
-  public function attemptFilterCacheRead($chapter, $key) {
-    $chapter_age = $this->book->age($chapter);
+  private function attemptFilterCacheRead($chapter, $key) {
+    $chapter_age = $this->cache->age($chapter);
     // set cache for 10 minutes
     if ($chapter_age && $chapter_age < 600) {
       $chapter_contents = $this->fileRead($chapter);
@@ -516,11 +512,11 @@ class CRM_Clif_Engine {
    *
    * #futurerole
    *
-   * @param $chapter - book "chapter" ID
+   * @param $chapter - cache "chapter" ID
    * @param $key - hashed absolute identifier of list
    * @param $list
    */
-  public function cacheWrite($chapter, $key, $list) {
+  private function cacheWrite($chapter, $key, $list) {
     $this->fileWrite($chapter, [$key => $list]);
   }
 
@@ -528,24 +524,24 @@ class CRM_Clif_Engine {
    * Core function #futurerole
    * Make a filter definition into a string
    */
-  private static function filterToKey($filter_id, $filter) {
-    if ($filter_id == 'perm') {
+  private static function filterToKey($clif_type, $clif) {
+    if ($clif_type == 'perm') {
       // if given a user, the key is really the users permissions:
-      $filter = AgcPerm::permissionString($filter);
+      $clif = AgcPerm::permissionString($clif);
     }
     // fixme - for security reasons maybe should always be json encoded?
-    return $filter_id . ':' . (is_string($filter) ? $filter : json_encode($filter));
+    return $clif_type . ':' . (is_string($clif) ? $clif : json_encode($clif));
   }
 
   /**
-   * Create a file name safe hash based on filter_id and key
+   * Create a file name safe hash based on clif_type and key
    * #futurerole
-   * @param $filter_id
+   * @param $clif_type
    * @param $key
    * @returns string
    */
-  public static function filterChapter($filter_id, $key) {
-    return substr($filter_id, 0, 2) . self::hashKey($key);
+  private static function filterChapter($clif_type, $key) {
+    return substr($clif_type, 0, 2) . self::hashKey($key);
   }
 
   /**
@@ -554,19 +550,19 @@ class CRM_Clif_Engine {
    * @param $key string
    * @param $key string
    */
-  public static function hashKey($key) {
+  private static function hashtKey($key) {
     return sha1($key);
   }
 
   /**
-   * Read a data blob from the "book"
+   * Read a data blob from the "cache"
    * #futurerole
    * @param $chapter string
    * @returns an array [$key => [array]]
    */
-  public function fileRead($chapter) {
+  private function fileRead($chapter) {
     $this->start('reading file');
-    $text = $this->book->getRaw($chapter);
+    $text = $this->cache->getRaw($chapter);
     $this->stop('reading file');
     $this->start('decoding');
 //    $decoded = json_decode($text, true);
@@ -576,18 +572,18 @@ class CRM_Clif_Engine {
   }
 
   /**
-   * Use the book to write a data blob
+   * Use the cache to write a data blob
    * #futurerole
    * @param $chapter string
    * @param $contacts array
    */
-  public function fileWrite($chapter, $contacts) {
+  private function fileWrite($chapter, $contacts) {
     $this->start('encoding');
 //    $data = json_encode($contacts);
     $data = serialize($contacts);
     $this->stop('encoding');
     $this->start('writing file');
-    $this->book->putRaw($chapter, $data);
+    $this->cache->putRaw($chapter, $data);
     $this->stop('writing file');
   }
 
