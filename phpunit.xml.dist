@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
-<phpunit backupGlobals="false" backupStaticAttributes="false" colors="true" convertErrorsToExceptions="true" convertNoticesToExceptions="true" convertWarningsToExceptions="true" processIsolation="false" stopOnFailure="false" syntaxCheck="false" bootstrap="tests/phpunit/bootstrap.php">
+<phpunit backupGlobals="false" backupStaticAttributes="false" colors="true" convertErrorsToExceptions="true" convertNoticesToExceptions="true" convertWarningsToExceptions="true" processIsolation="false" stopOnFailure="false" syntaxCheck="false" >
   <testsuites>
-    <testsuite name="My Test Suite">
-      <directory>./tests/phpunit</directory>
+    <testsuite name="Basic tests">
+      <directory>./tests/first_gen</directory>
     </testsuite>
   </testsuites>
   <filter>
@@ -10,9 +10,4 @@
       <directory suffix=".php">./</directory>
     </whitelist>
   </filter>
-  <listeners>
-    <listener class="Civi\Test\CiviTestListener">
-      <arguments/>
-    </listener>
-  </listeners>
 </phpunit>

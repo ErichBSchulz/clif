@@ -3,7 +3,8 @@
 use PHPUnit\Framework\TestCase;
 
 // fixme - there should be a pattern for this
-require_once '../../CRM/Clif/CRM_Clif_Engine.php';
+require_once realpath(dirname(__FILE__)) .  '/../../CRM/Clif/CRM_Clif_Engine.php';
+
 
 class AgcClifTest extends TestCase {
 

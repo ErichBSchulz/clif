@@ -1,0 +1,32 @@
+{
+  "name": "au.org.greens.clif",
+  "version": "1.0.0",
+  "description": "CiviCRM Extension for contact list interchange format",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "bin/phpunit tests --color",
+    "test:watch": "watch 'npm run --silent test' ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ErichBSchulz/clif.git"
+  },
+  "keywords": [
+    "CiviCRM",
+    "extension",
+    "Boolean",
+    "cache"
+  ],
+  "author": "Erich Schulz",
+  "license": "See README",
+  "bugs": {
+    "url": "https://github.com/ErichBSchulz/clif/issues"
+  },
+  "homepage": "https://github.com/ErichBSchulz/clif#readme",
+  "devDependencies": {
+    "watch": "^1.0.1"
+  }
+}

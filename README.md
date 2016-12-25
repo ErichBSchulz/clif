@@ -1,37 +1,61 @@
-# QIF
+# CLIF
 
-QIF is potentially short for "Quick ID + Filter" format or  "Query interchange
+CLIF is short for "Contact List Interchange Format". [See the Google Doc notes](https://docs.google.com/document/d/1S9LqLJfqCEVY8UAIWY5UNuTRRvnWC2zCPVqC7kwcKdk/edit?usp=sharing) for non-developmental documentation.
+
+CLIF was formerly known as QIF, potentially short for "Quick ID + Filter" format
+or  "Query interchange
 format" depending on your mood.
 
-The purpose of the QIF engine is to support the exchange of high-performance,
+The purpose of the CLIF engine is to support the exchange of high-performance,
     flexible contact list (i.e. group) definitions. It provides a
     better-defined abstraction for smart groups and advanced searches and has
     the potential for more efficient SQL that that makes better use of indices.
 
-The primary benefits of QIF over the current Advanced Search screen of CiviCRM
+The primary benefits of CLIF over the current Advanced Search screen of CiviCRM
 are that it supports complex Boolean constructs and interfaces with a caching
 system.
 
-QIF allows defining complex list definition in tree simple tree structure:
+CLIF allows defining complex list definition in tree simple tree structure:
 
-    {"id": "intersection",
-     "filter": [
-        {"id": "status","filter": ["C", "P","X"]},
-        {"id": "email", "filter": {"type": "usable"}},
-        {"id": "union",
-          "filter": [
-            {"id": "tag", "filter": ["529"]},
-            {"id": "not",
-             "filter": [{"id": "phone","filter": {"type": "any"}}]
+    {"type": "intersection",
+     "params": [
+        {"type": "status","params": ["C", "P","X"]},
+        {"type": "email", "params": {"type": "usable"}},
+        {"type": "union",
+          "params": [
+            {"type": "tag", "params": ["529"]},
+            {"type": "not",
+             "params": [{"type": "phone","params": {"type": "any"}}]
             }]}]}
 
-This QIF will combine the members of OSSC and OSUG:
+This CLIF will combine the members of OSSC and OSUG:
 
-      {"id": "union",
-        "filter": [
-          {"id": "pod", "filter": {"pod": 266114}},
-          {"id": "pod", "filter": {"pod": 256219}}
+      {"type": "union",
+        "params": [
+          {"type": "pod", "params": {"pod": 266114}},
+          {"type": "pod", "params": {"pod": 256219}}
       ]}
+
+# Testing
+
+You can run the unit tests of core classes with phpunit from within the root directory:
+
+    phpunit tests
+
+or
+
+    phpunit tests --color
+
+If you like live testing set up the `npm` `watch` package to run all the tests
+when a file changes:
+
+    ln $(which phpunit) bin/phpunit -s
+    npm install
+
+Then you can run tests continually with:
+
+    npm test:watch
+
 
 # Current status
 
@@ -47,13 +71,10 @@ expect it to be released fully under a permissive licence very shortly.
 
 Within the `historic/protype` folder are some of the source files that
 demonstrate the first implementation in php and angular. These are provide
-merely to add substance to the discusion of how best to implement the QIF
+merely to add substance to the discusion of how best to implement the CLIF
 notion into CiviCRM.
 
 # Mistakes made
-
-Calling the filter type `id` - that is confusing with the autoincrement MySql
-table IDs. `type` would have been better.
 
 Combolists and all the pre-qif formats
 
@@ -64,4 +85,3 @@ use a single filter, which maybe an `intersection` or `union` type.
 
 * overall architecture
 * support API V3 or V4
-* change id to type ?
