@@ -4,7 +4,7 @@
  * Contact List Interchange Format engine clase
  *
  */
-class AgcClif {
+class CRM_Clif_Engine {
 
   /**
    * Constructor

@@ -1,5 +1,8 @@
 <?php
 
+// fixme what is the autoload pattern?
+require_once realpath(dirname(__FILE__)) .  '/../../../CRM/Clif/CRM_Clif_Engine.php';
+
 /**
  * Contact.Getcliff API specification
  *
@@ -35,7 +38,7 @@ function civicrm_api3_contact_getclif($params) {
     throw new API_Exception('Can only return ID until Erich is pointed in right
       direction');
   }
-  $clif = new AgcClif(array(
+  $clif = new CRM_Clif_Engine(array(
     'clif' => $p['clif'],
   ));
   $contacts = $clif->get();
