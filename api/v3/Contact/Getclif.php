@@ -35,7 +35,11 @@ function civicrm_api3_contact_getclif($params) {
     throw new API_Exception('Can only return ID until Erich is pointed in right
       direction');
   }
-  $contacts = AgcCliff::get($p);
+  $clif = new AgcClif(array(
+    'clif' => $p['clif'],
+  ));
+  $contacts = $clif->get();
+
   return civicrm_api3_create_success(
     $contacts, //
     $params, // todo ?? clarify best as $p or $params
@@ -43,17 +47,3 @@ function civicrm_api3_contact_getclif($params) {
     'Get'); // todo get or Get??
 }
 
-  class AgcCliff {
-
-    public static function get($params) {
-      return 'hello world';
-    }
-
-    // todo
-    // - type switch
-    // - validation checker
-    // - cache hack
-//  $params['return'] = 'id';
-//  return civicrm_api3('Contact', 'get', $params);
-
-  }
