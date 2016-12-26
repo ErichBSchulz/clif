@@ -8,17 +8,32 @@ require_once realpath(dirname(__FILE__)) .  '/../../CRM/Clif/CRM_Clif_Engine.php
 
 class AgcClifTest extends TestCase {
 
-  public function testHello() {
+  public function testGet() {
     // Arrange
-    $clif = new CRM_Clif_Engine(array(
-      'clif' => array(
-        'type' => 'null'
-      )
-    ));
-    // Act
-    $result = $clif->get();
-    // Assert
-    $this->assertEquals('hello world', $result);
+    $list_A = array(1, 2, 3);
+    $list_B = array(3, 4, 5);
+    $list_C = array(6, 8);
+    $filter_A = CRM_Clif_Engine::contactIdsToClif($list_A);
+    $filter_B = CRM_Clif_Engine::contactIdsToClif($list_B);
+    $filter_C = CRM_Clif_Engine::contactIdsToClif($list_C);
+    $tests = array(
+      array(
+        'title' => 'empty',
+        'clif' => array('type' => 'empty'), // bad case
+        'expected' => array()
+      ),
+    );
+    foreach ($tests as $test) {
+      // Act
+      $clif = new CRM_Clif_Engine(array(
+        'clif' => $test['clif'],
+      ));
+      $result = $clif->get(array(
+        'length' => 1000,
+      ));
+      // Assert
+//      $this->assertEquals($test['expected'], $result, "$test[title] result");
+    }
   }
 
   public function testContactIdsToClif() {
@@ -28,9 +43,9 @@ class AgcClifTest extends TestCase {
     //    {"type": "raw", "params": {"10": 1, "20": 1, "30": 1}
     $valid_lists = array(
       'integer' => array(10, 20, 30),
-      'duplicates' => array(10, 20, 20, 30),
+      'duplicates' => array(10, 20, 20, 30), //silently deduped
       'string' => array("10", "20", "30"),
-      'leading_zero' => array("010", 20, 30),
+      'leading_zero' => array("010", 20, 30), // checking not octal!
       'mixed' => array(10, "20", 20, 30),
     );
 
@@ -49,7 +64,6 @@ class AgcClifTest extends TestCase {
     foreach($valid_lists as $test_name => $contacts) {
       // Act
       $filter = CRM_Clif_Engine::contactIdsToClif($contacts);
-      echo $test_name . ': $filter: '.json_encode($filter,JSON_PRETTY_PRINT)." \n";
       // Assert
       $this->assertArrayHasKey('type', $filter,
         "expect $test_name to have type");
@@ -70,7 +84,6 @@ class AgcClifTest extends TestCase {
       // Act
       try {
         $filter = CRM_Clif_Engine::contactIdsToClif($contacts);
-        echo '$filter: '.json_encode($filter,JSON_PRETTY_PRINT)."\n";
         $error_thrown = false;
       }
       catch (Exception $e) {
