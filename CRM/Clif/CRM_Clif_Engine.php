@@ -15,6 +15,59 @@
 class CRM_Clif_Engine {
 
   /**
+   * Constructor
+   *
+   * @params array
+   * - clif
+   */
+  public function __construct(array $params) {
+    $defaults = array(
+      'clif' => false
+    );
+    $p = $params + $defaults;
+    // $this->cacheEngine = new AgcCache();
+    if (!$p['clif']) {
+      throw new Exception("missing clif parameter");
+    }
+    $this->clif = $p['clif'];
+  }
+
+  /**
+   * Utility for formating contact list
+   *
+   * @params array of $contact_ids
+   * - clif
+   * @todo add in a permissive mode that simply filters out bad IDs
+   */
+  public static function contactIdsToClif(array $contact_ids) {
+    $raw = array();
+    foreach ($contact_ids as $id) {
+      if (!is_numeric($id)) {
+        throw new Exception("bad contact_id");
+      }
+      $contact_id = (int)($id);
+      $raw[$contact_id] = 1;
+      if (static::$safe) {
+        if ($contact_id < 1) {
+          throw new Exception("contact ID too low");
+        }
+        if (end($contact_ids) > 99999999999) {
+          // fixme max_id should be system constant
+          throw new Exception("contact ID too hi");
+        }
+
+      }
+    }
+    // apparently this method is slower when combined with type casting
+    // $raw = array_fill_keys($contact_ids, 1);
+    $clif = array(
+      'type' => 'raw',
+      'params' => $raw
+    );
+    return $clif;
+  }
+
+  /**
    * AgcBook object (wrapper for directory holding cache files)
    */
   private $cache;
@@ -24,6 +77,11 @@ class CRM_Clif_Engine {
    * Immutable root CLIF set on construction
    */
   private $root;
+
+  /**
+   * flag for turning on extra checks (at cost of performance)
+   */
+  private static $safe = 1; // propose 0=high performance, 1=regular, 2=debug
 
   /**
    * List of contact lists by key
@@ -82,24 +140,6 @@ class CRM_Clif_Engine {
     $this->trace("${run_time}ms (total now ${total}ms) on $task");
   }
 
-  /**
-   * Constructor
-   *
-   * @params array
-   * - clif
-   */
-  function __construct(array $params) {
-    $defaults = array(
-      'clif' => false
-    );
-    $p = $params + $defaults;
-    // $this->cacheEngine = new AgcCache();
-    if (!$p['clif']) {
-      throw new Exception("missing clif parameter");
-    }
-    $this->clif = $p['clif'];
-  }
-
   private function getFilters() {
     return $this->root;
   }
@@ -114,7 +154,7 @@ class CRM_Clif_Engine {
    * @returns number of sets flushed | null if doing complete flush
    * @tested via quick.clearcache
    */
-  function clearCache($chapters = false) {
+  private function clearCache($chapters = false) {
     if ($chapters === true) {
       $chapters = $this->getCacheChapters();
     }
@@ -139,7 +179,7 @@ class CRM_Clif_Engine {
    * @returns array
    * @tested via quick.clearcache
    */
-  function listCache() {
+  private function listCache() {
     return $this->cache->listChapters();
   }
 
