@@ -9,6 +9,25 @@ require_once realpath(dirname(__FILE__)) .  '/../../CRM/Clif/CRM_Clif_Engine.php
 class AgcClifTest extends TestCase {
 
   public function testGetLogic() {
+    $api_mock = function($entity, $action, $params) {
+      $values = array(
+         array(
+          "entity_id" => "3",
+          "id" => "503"
+        ),
+         array(
+          "entity_id" => "5",
+          "id" => "505"
+        ),
+      );
+      return array(
+        "is_error" => 0,
+        "version" => 3,
+        "count" => count($values),
+        "values" => $values
+        );
+    };
+
     // Arrange
     $list_A = array(1, 2, 3);
     $list_B = array(3, 4, 5);
@@ -16,6 +35,30 @@ class AgcClifTest extends TestCase {
     $filter_A = CRM_Clif_Engine::contactIdsToClif($list_A);
     $filter_B = CRM_Clif_Engine::contactIdsToClif($list_B);
     $filter_C = CRM_Clif_Engine::contactIdsToClif($list_C);
+    // todo test this!
+    $filter_api_group = array(
+      'type' => 'api3',
+      'params' => array(
+        'entity' => "GroupContact",
+        'action' => "get",
+        'params' => array(
+          'group_id' => array('IN' => array("Qld_All", "L2Vic")),
+          'status' => "Added",
+        )
+      )
+    );
+    $filter_api_group = array(
+      'type' => 'api3',
+      'params' => array(
+        'entity' => 'EntityTag',
+        'action' => "get",
+        'params' => array(
+          'tag_id' => array('IN' => array("testing tag 1473109397")),
+          'entity_table' => "civicrm_contact",
+        )
+      )
+    );
+
     $tests = array(
       array(
         'title' => 'empty',
@@ -46,11 +89,19 @@ class AgcClifTest extends TestCase {
         ),
         'expected' => array(3)
       ),
+      array(
+        'title' => 'api group',
+        'clif' => $filter_api_group,
+        'expected' => array(3,5)
+      ),
     );
     foreach ($tests as $test) {
       // Act
       $clif = new CRM_Clif_Engine(array(
         'clif' => $test['clif'],
+        'inject' => array(
+          'api3' => $api_mock
+        )
       ));
       try {
         $result = $clif->get(array(
