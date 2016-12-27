@@ -8,7 +8,7 @@ require_once realpath(dirname(__FILE__)) .  '/../../CRM/Clif/CRM_Clif_Engine.php
 
 class AgcClifTest extends TestCase {
 
-  public function testGet() {
+  public function testGetLogic() {
     // Arrange
     $list_A = array(1, 2, 3);
     $list_B = array(3, 4, 5);
@@ -22,17 +22,50 @@ class AgcClifTest extends TestCase {
         'clif' => array('type' => 'empty'), // bad case
         'expected' => array()
       ),
+      array(
+        'title' => 'raw',
+        'clif' => array(
+          'type' => 'raw',
+          'params'=> array(10=>1, 20=>1)
+        ),
+        'expected' => array(10,20)
+      ),
+      array(
+        'title' => 'union',
+        'clif' => array(
+          'type' => 'union',
+          'params'=> array($filter_A, $filter_B)
+        ),
+        'expected' => array(1,2,3,4,5)
+      ),
+      array(
+        'title' => 'intersection',
+        'clif' => array(
+          'type' => 'intersection',
+          'params'=> array($filter_A, $filter_B)
+        ),
+        'expected' => array(3)
+      ),
     );
     foreach ($tests as $test) {
       // Act
       $clif = new CRM_Clif_Engine(array(
         'clif' => $test['clif'],
       ));
-      $result = $clif->get(array(
-        'length' => 1000,
-      ));
+      try {
+        $result = $clif->get(array(
+          'length' => 1000,
+        ));
+      }
+      catch (Exception $e) {
+        echo "----trace:\n" . implode($clif->trace, "\n") . "\n----\n";
+        throw $e;
+      }
       // Assert
-//      $this->assertEquals($test['expected'], $result, "$test[title] result");
+      $this->assertEquals(
+        $test['expected'],
+        $result,
+        "$test[title] result");
     }
   }
 

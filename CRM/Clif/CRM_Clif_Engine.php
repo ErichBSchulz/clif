@@ -3,6 +3,12 @@
 /**
  * Contact List Interchange Format (CLIF) engine clase
  *
+ * Note the engine use "index format" for contact list, storing the contact ID
+ * as the key in the array and a 1 as the value. Initial benchmarking showed
+ * this significantly speed up union and intersection operations.
+ *
+ * eg array(12345 => 1, 13552 => 1) is the internal format for [12345, 13552]
+ *
  * todo
  * - type switch
  * - validation checker
@@ -96,7 +102,7 @@ class CRM_Clif_Engine {
   /**
    * Array of trace reports
    */
-  private $trace = [];
+  public $trace = [];
 
   /**
    * Array of profiling times
@@ -135,7 +141,9 @@ class CRM_Clif_Engine {
 
   private function stop($task) {
     $run_time = round((microtime(true) - $this->segments[$task]['start']) * 100)* 10;
-    $total = (Agc::hasValue($this->segments[$task], 'total') ?: 0) + $run_time;
+    $total = isset($this->segments[$task]['total'])
+      ? $this->segments[$task]['total'] : 0;
+    $total += $run_time;
     $this->segments[$task]['total'] = $total;
     $this->trace("${run_time}ms (total now ${total}ms) on $task");
   }
@@ -198,7 +206,13 @@ class CRM_Clif_Engine {
 
   /**
    * Generates this list if not already and returns the contacts.
-   * @return array of contact ids
+   *
+   * Note this function should not handle sorting.
+   * @params $params array
+   * - offest integer
+   * - length integer (required)
+   * - format string array|raw|string_list
+   * @return string|array depending on 'format' parameter
    * @see http://php.net/manual/en/function.array-slice.php
    */
   public function get($params = []) {
@@ -212,17 +226,49 @@ class CRM_Clif_Engine {
     if (!$p['length']) {
       throw new Exception('must specify length');
     }
-    // decode from "ID index format" and slice out the chunk we want
-    $contacts = array_keys(array_slice(
-      $this->getContacts(), $p['offset'], $p['length'], true));
+    // decode from "index format" and slice out the chunk we want
+    $contacts = array_slice(
+      $this->getContacts(), $p['offset'], $p['length'], true);
     switch ($p['format']) {
     case 'array':
-      return $contacts;
+      return array_keys($contacts);
     case 'string_list': // suitable for using in `IN ()` clauses
-      return count($contacts) ? implode(',', $contacts) : '-1';
+      return count($contacts) ? implode(',', array_keys($contacts)) : '-1';
     default:
       throw new Exception('bad format');
     };
+  }
+
+  /**
+   * Generates this list if not already, or pulls from within object
+   * @return array in "index format"
+   */
+  private function getContacts() {
+    $this->trace('starting get');
+    // list already generated, so return that and get out of here:
+    if ($this->contacts) {
+      return $this->contacts;
+    }
+    $this->fillStash($this->root);
+    $this->contacts = $this->fromStash($this->root);
+    return $this->contacts;
+  }
+
+  /**
+   * Get the index list from the stash, or give back the raw list.
+   * @return array in "index format"
+   */
+  private function fromStash($clif) {
+    switch ($clif['type']) {
+    case 'raw':
+      $this->trace('get raw ' . count($clif) . ' records');
+      return $clif['params'];
+    case 'empty':
+      $this->trace('got empty');
+      return [];
+    default:
+      return $this->stash[$clif['cache_key']];
+    }
   }
 
   /**
@@ -240,46 +286,67 @@ class CRM_Clif_Engine {
   }
 
   /**
-   * Fetch all ID lists and place in the $stash property
+   * Coarse syntax validation
+   * @param $clif
+   * @return null
+   */
+  private function checkProperlyFormed($clif) {
+    $type = $clif['type'];
+    // check type
+    if (static::$safe && preg_match('/[^a-z0-9_]/', $type)) {
+      throw new Exception ('type must be only a-z, 0_9 and underscore');
+    }
+    // check params
+    // 'all' and 'empty' must not have params
+    if (in_array($type, ['all', 'empty'])) {
+      if (isset($clif['params'])) {
+        throw new Exception ('cannot have params array on $type');
+      }
+    }
+    else { // all others must
+      if (!isset($clif['params'])) {
+        $this->trace('fatal missing property: [' . json_encode($clif) . ']');
+        throw new Exception ('missing params array');
+      }
+      if (!is_array($clif['params'])) {
+        throw new Exception ('params must be an array');
+      }
+    }
+  }
+
+  /**
+   * Walk query tree, validate, fetch and stash lists
    *
-   * @param &$clif - collection of filters in [id, filter] format
-   * @param $params = []
-   *
-   * Adds the following to each $clif row:
+   * For non-raw filters adds the following to each $clif row:
    * - cache_key
    * - description
    *
-   * Caches the list of contacts in $this->stash[$cache_key]
+   * Stashes the list in $this->stash[$cache_key]
+   *
+   * @param &$clif - collection of filters in [id, filter] format
+   * @param $params = []
+   * @returns null
+   * @throws
    */
-  private function getIds(&$clif, $params = []) {
+  private function fillStash(&$clif, $params = []) {
     $defaults = array(
       'dry_run' => false
     );
     // merge params in with defaults
     $p = $params + $defaults;
-    // check type
+    // validate clif (throws exception if invalid)
+    $this->checkProperlyFormed($clif);
+    // extract properties and fill in blank params if needed
     $type = $clif['type'];
-    if (static::$safe && preg_match('/[^a-z]/', $type)) {
-      throw new Exception ('bad type');
-    }
-    // check params
-    if (isset($clif['params']) && is_array($clif['params'])) {
-      $clif_params = $clif['params'];
-    }
-    else {
-      if (!in_array($type, ['all', 'empty'])) {
-        $this->trace('fatal missing property: [' . json_encode($clif) . ']');
-        throw new Exception ('missing params array');
-      }
-      else {
-        $clif_params = [];
-      }
-    }
+    $clif_params = isset($clif['params']) ? $clif['params'] : [];
     $cache_key = $this->filterToKey($type, $clif_params);
     $clif['cache_key'] = $cache_key;
     $clif['description'] = self::debugDescribe($clif);
     $this->trace("starting $clif[type] - $clif[description]");
-    if (isset($this->stash[$cache_key])) {
+    if ($type == 'raw') {
+      return; // dont stash raw lists
+    }
+    elseif (isset($this->stash[$cache_key])) {
       $this->trace('already loaded');
     }
     else {
@@ -287,7 +354,7 @@ class CRM_Clif_Engine {
       // recurse down the tree to ensure all dependant filters are fetched
       if (in_array($type, ['union', 'intersection', 'not'])) {
         foreach ($clif_params as $filter) {
-          $this->getIds($filter, $p);
+          $this->fillStash($filter, $p);
         }
       }
       if (!$p['dry_run']) {
@@ -310,40 +377,41 @@ class CRM_Clif_Engine {
         default:
           $this->start('get');
           // get the list (either from cache or generating raw
-          $list = $this->getList($type, $clif_params, $p);
+          $list = $this->getList($clif, $p);
           $this->stop('get');
           $this->trace(count($list) . " contacts loaded");
         }
-      }
       $this->stash[$cache_key] = $list;
+      }
     }
   }
 
   /**
    * Finds the intersection between sets (Boolean AND operation)
-   * @return array in "index format" (key being contact_id)
+   * @return array in "index format"
    */
   private function intersect($clifs) {
     $this->trace('starting intersect');
     $index = []; // used sort lists from smallest to largest
     $contacts = false;
     // generate a size index
-    foreach ($clifs AS $clif) {
+    foreach ($clifs AS $i => $clif) {
       // fixme should extract out the "nots" in this loop to be subtracted after
-      $index[$clif['cache_key']] = count($this->stash[$clif['cache_key']]);
+      $index[$i] = count($this->fromStash($clif));
     }
     // sort the index so the smallest lists are first
     asort($index);
     // loop over lists, starting with smallest
-    foreach ($index AS $cache_key => $count) {
+    foreach ($index AS $i => $count) {
+      $current = $this->fromStash($clifs[$i]);
       if ($contacts===false) {
         $this->trace("base of $count contacts");
-        $contacts = $this->stash[$cache_key];
+        $contacts = $current;
       }
       else {
         $this->trace("merging $count contacts");
         $this->start('merge');
-        $contacts = array_intersect_key($contacts, $this->stash[$cache_key]);
+        $contacts = array_intersect_key($contacts, $current);
         $this->stop('merge');
         if ($contacts === []) {
           $this->trace('empty, bailing');
@@ -357,19 +425,18 @@ class CRM_Clif_Engine {
 
   /**
    * Finds the union between sets (Boolean OR operation)
-   * @return array in "index format" (currently key being contact_id)
+   * @return array in "index format"
    */
   private function union($clifs) {
     $this->trace('starting union');
     $contacts = false;
-    // loop over lists, starting with smallest
     foreach ($clifs AS $clif) {
-      if ($contacts===false) {
-        $contacts = $this->stash[$clif['cache_key']];
+      if ($contacts===false) { // first time around
+        $contacts = $this->fromStash($clif);
       }
       else {
         $this->start('merge');
-        $contacts = $contacts + $this->stash[$clif['cache_key']];
+        $contacts = $contacts + $this->fromStash($clif);
         $this->stop('merge');
       }
       $this->trace("now " . count($contacts) . " contacts");
@@ -380,7 +447,7 @@ class CRM_Clif_Engine {
 
   /**
    * Reliably negate a set
-   * @return array in "index format" (currently key being contact_id)
+   * @return array in "index format"
    */
   private function not($clifs) {
     $this->trace('starting negation');
@@ -388,88 +455,37 @@ class CRM_Clif_Engine {
     if (count($clifs) != 1) {
       throw new Exception ('can only negate a single clause');
     }
-    $contacts = $this->getList('all', 'all');
+    $contacts = $this->getList(['type' => 'all']);
     $this->trace("from " . count($contacts) . " contacts");
     $clif = $clifs[0];
-    $contacts = array_diff_key($contacts, $this->stash[$clif['cache_key']]);
+    $contacts = array_diff_key($contacts, $this->fromStash($clif));
     $this->trace("now " . count($contacts) . " contacts");
     $this->trace('done negation');
     $this->stop('negation');
     return $contacts;
   }
 
-  /**
-   * Generates this list if not already, or pulls from within object
-   * @return array in "index format" (currently key being contact_id)
-   */
-  private function getContacts() {
-    $this->trace('starting get');
-    // list already generated, so return that and get out of here:
-    if ($this->contacts) {
-      return $this->contacts;
-    }
-    echo '$this->root: '.json_encode($this->root,JSON_PRETTY_PRINT)."\n";
-    $this->getIds($this->root);
-    echo '$this->stash: '.json_encode($this->stash,JSON_PRETTY_PRINT)."\n";
-    $this->contacts = $this->stash[$this->root['cache_key']];
-    return $this->contacts;
-  }
-
-  /**
-   * Get a list of chapters for this filter
-   * @return array
-   */
-  private function getCacheChapters() {
-    $this->trace('starting get chapters');
-    $this->start('get chapters');
-    $this->getIds($this->root, ['dry_run' => true]);
-    $this->stop('get chapters');
-    return array_keys($this->chapters);
-  }
-
-  /**
-   * Validates a filter
-   * @return false (on valid) and string on error
-   */
-  private function isInvalid() {
-    $this->trace('starting get chapters');
-    $this->start('get chapters');
-    try {
-      $this->getIds($this->root, ['dry_run' => true]);
-      // we got here so all good:
-      $error = false;
-    } catch (Exception $e) {
-      // uh-oh
-      $error = $e->getMessage();
-      $this->trace('got: ' . $error .
-        ' at ' . $e->getFile() . ' #' . $e->getLine());
-    }
-    $this->stop('get chapters');
-    return $error;
-  }
 
   /**
    * Fetch a list from cache or from database
    * Attempts a cache read first with `attemptFilterCacheRead())`.
-   * If no cache hit calls `buildSqlMeta()` then `sqlToIdIndex()` and `cacheWrite()`
-   * @param $clif_type
+   * If no cache hit needs to call api and `cacheWrite()`
+   * @param $type
    * @param $clif
-   * @returns a list in "ID index format"
+   * @returns a list in "index format"
    */
-  private function getList($clif_type, $clif, $params = []) {
+  private function getList($clif, $params = []) {
     $defaults = [
       'dry_run' => false
       ];
     // merge params in with defaults
     $p = $params + $defaults;
-    if ($clif_type == 'raw') {
-      $this->trace('get raw ' . count($clif) . ' records');
-      return $clif; // not cachable raw id list
-    }
+    $clif_params = isset($clif['params']) ? $clif['params'] : [];
+    $type = $clif['type'];
     // make a unique cache_key for this filter
-    $cache_key = self::filterToKey($clif_type, $clif);
+    $cache_key = self::filterToKey($type, $clif_params);
     // hash the cache_key to filename safe string:
-    $chapter = self::filterChapter($clif_type, $cache_key);
+    $chapter = self::filterChapter($type, $cache_key);
     $this->chapters[$chapter] = true;
     // @todo - decide pattern for marking some filters as non-cachalbe
     $no_cache = false;
@@ -482,7 +498,7 @@ class CRM_Clif_Engine {
     }
     else {
       // get meta ([sql, contact_id])
-      $meta = $this->buildSqlMeta($clif_type, $clif);
+      $meta = $this->buildSqlMeta($type, $clif_params);
       $this->trace("sql:\n" .$meta['sql']);
       if ($p['dry_run']) {
         return [];
@@ -498,6 +514,40 @@ class CRM_Clif_Engine {
   }
 
   /**
+   * Get a list of chapters for this filter
+   * @return array
+   */
+  private function getCacheChapters() {
+    $this->trace('starting get chapters');
+    $this->start('get chapters');
+    $this->fillStash($this->root, ['dry_run' => true]);
+    $this->stop('get chapters');
+    return array_keys($this->chapters);
+  }
+
+  /**
+   * Validates a filter
+   * @return false (on valid) and string on error
+   */
+  private function isInvalid() {
+    $this->trace('starting get chapters');
+    $this->start('get chapters');
+    try {
+      $this->fillStash($this->root, ['dry_run' => true]);
+      // we got here so all good:
+      $error = false;
+    } catch (Exception $e) {
+      // uh-oh
+      $error = $e->getMessage();
+      $this->trace('got: ' . $error .
+        ' at ' . $e->getFile() . ' #' . $e->getLine());
+    }
+    $this->stop('get chapters');
+    return $error;
+  }
+
+
+  /**
    * Translate a filter into SQL
    *
    * This is the main switch board #futurerole
@@ -509,7 +559,7 @@ class CRM_Clif_Engine {
    * - contact_id field name
    * - [future] description
    * - [future] cacheable (defaul true)
-   * @todo - extend to return cachable status and a description
+   * @todo - deprecated pattern - will move to API based list generation
    */
   private function buildSqlMeta($clif_type, $clif) {
     switch ($clif_type) {
@@ -599,7 +649,7 @@ class CRM_Clif_Engine {
    * @param $cache_key string
    * @param $cache_key string
    */
-  private static function hashtKey($cache_key) {
+  private static function hashKey($cache_key) {
     return sha1($cache_key);
   }
 
