@@ -12,6 +12,8 @@ require_once realpath(dirname(__FILE__)) .  '/../../../CRM/Clif/CRM_Clif_Engine.
  */
 function _civicrm_api3_contact_getclif_spec(&$spec) {
   $spec['clif']['api.required'] = 1;
+  $spec['length']['api.required'] = 1;
+  $spec['offset']['api.required'] = 0;
 }
 
 /**
@@ -27,6 +29,7 @@ function civicrm_api3_contact_getclif($params) {
   $defaults = array(
     'clif' => false,
     'return' => 'id',
+    'offset' => 0,
   );
   // merge params in with defaults
   $p = $params + $defaults;
@@ -41,7 +44,10 @@ function civicrm_api3_contact_getclif($params) {
   $clif = new CRM_Clif_Engine(array(
     'clif' => $p['clif'],
   ));
-  $contacts = $clif->get();
+  $contacts = $clif->get(array(
+    'offset' => (int)$p['offset'],
+    'length' => (int)$p['length'],
+  ));
 
   return civicrm_api3_create_success(
     $contacts, //
