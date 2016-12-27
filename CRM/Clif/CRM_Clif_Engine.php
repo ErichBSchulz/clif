@@ -29,7 +29,8 @@ class CRM_Clif_Engine {
    */
   public function __construct(array $params) {
     $defaults = array(
-      'clif' => false
+      'clif' => false,
+      'inject' => [],
     );
     $p = $params + $defaults;
     // $this->cacheEngine = new AgcCache();
@@ -37,35 +38,140 @@ class CRM_Clif_Engine {
       throw new Exception("missing clif parameter");
     }
     $this->root = $p['clif'];
+    // set up injectables
+    $p['inject'] += array(
+      'api3' => "civicrm_api3",
+    );
+    $this->api3_callable = $p['inject']['api3'];
+  }
+
+  private $api3_callable;
+
+  /**
+   * Wrapper around the CiviCRM API V3
+   * @params array
+   * - clif_params
+   * @returns array
+   * - api_result - result from API
+   * - raw - contact list format in index format
+   * @todo add in a permissive mode that simply filters out bad IDs
+   */
+  private function api3(array $params) {
+    $defaults = array (
+    );
+    $p = $params + $defaults;
+    $entity = "GroupContact";
+    $action = "get"; // filter so only get* allowed?
+    // figure out what value to ask the api for
+    switch ($entity) {
+    case 'EntityTag':
+      $returned_field = "entity_id";
+      break;
+    default:
+      $returned_field = "contact_id";
+    };
+    $enforced_params = array(
+      'sequential' => 1,
+      'return' => $returned_field
+    );
+    $clif_params = array(
+      'group_id' => array('IN' => array("Qld_All", "L2Vic")),
+      'status' => "Added",
+    );
+    // add in the clif params to the enforced values
+    // (first array has precidence)
+    $api_params = $enforced_params + $clif_params;
+    $result = call_user_func_array(
+      $this->api3_callable,
+      array($entity, $action, $api_params));
+    if (!isset($result['is_error'])) {
+      throw new Exception("malformed API3 response");
+    }
+    if ($result['is_error']) {
+      $this->trace('api3 error with: [' . json_encode($api_params) . ']');
+      throw new Exception("API3 error");
+    }
+    else {
+      return array(
+        'api_result' => $result,
+        'raw' => $this->contactIdsToRaw($result['values'])
+      );
+    }
   }
 
   /**
-   * Utility for formating contact list
-   *
-   * @params array of $contact_ids
-   * @returns array cliff [type, params]
+   * Utility for formating contact list to raw indexed format
+   * @params array of $contact_ids or arrays with contact_id, or id
+   * @returns array with contact_id as key
    * @todo add in a permissive mode that simply filters out bad IDs
    */
-  public static function contactIdsToClif(array $contact_ids) {
+  public static function contactIdsToRaw(array $contact_ids) {
     $raw = array();
-    foreach ($contact_ids as $id) {
-      if (!is_numeric($id)) {
-        throw new Exception("bad contact_id");
-      }
-      $contact_id = (int)($id);
-      $raw[$contact_id] = 1;
-      if (static::$safe) {
-        if ($contact_id < 1) {
-          throw new Exception("contact ID too low");
+    if (count($contact_ids)) {
+      // use first record to understand collection
+      $first = $contact_ids[0];
+      if (is_array($first)) {
+        if (isset($first['contact_id'])) {
+          $method = 'contact_id';
         }
-        if (end($contact_ids) > 99999999999) {
-          // fixme max_id should be system constant
-          throw new Exception("contact ID too high");
+        elseif (isset($first['entity_id'])) {
+          $method = 'entity_id';
+        }
+        elseif (isset($first['id'])) {
+          $method = 'id';
+        }
+        else {
+          throw new Exception("cannot find contact_id or id in first row");
+        }
+      }
+      else {
+        // this may not work, but we'll catch it below if it doesn't
+        $method = 'integer';
+      }
+      // loop over records and collect ids
+      foreach ($contact_ids as $row) {
+        switch ($method) {
+        case 'contact_id':
+          $id = $row['contact_id'];
+          break;
+        case 'entity_id':
+          $id = $row['entity_id'];
+          break;
+        case 'id':
+          $id = $row['id'];
+          break;
+        case 'integer':
+          $id = $row;
+          break;
+        }
+        if (!is_numeric($id)) {
+          throw new Exception("bad contact_id");
+        }
+        $contact_id = (int)($id);
+        $raw[$contact_id] = 1;
+        if (static::$safe) {
+          if ($contact_id < 1) {
+            throw new Exception("contact ID too low");
+          }
+          if ($contact_id > 99999999999) {
+            // fixme max_id should be system constant
+            throw new Exception("contact ID too high");
+          }
         }
       }
     }
     // apparently this method is slower when combined with type casting
     // $raw = array_fill_keys($contact_ids, 1);
+    return $raw;
+  }
+
+  /**
+   * Utility for formating contact list
+   * @params array of $contact_ids
+   * @todo add in a permissive mode that simply filters out bad IDs
+   */
+  public static function contactIdsToClif(array $contact_ids) {
+    $raw = self::contactIdsToRaw($contact_ids);
     $clif = array(
       'type' => 'raw',
       'params' => $raw
@@ -99,54 +205,6 @@ class CRM_Clif_Engine {
    */
   private $contacts = [];
 
-  /**
-   * Array of trace reports
-   */
-  public $trace = [];
-
-  /**
-   * Array of profiling times
-   */
-  private $segments = [];
-
-  /**
-   * Integer millisecond start time
-   */
-  private $start = 0;
-
-  /**
-   * Add a time-stamped record note to the trace record:
-   * @param string $msg
-   */
-  private function trace($msg) {
-    if (!$this->start) {
-      $this->start = microtime(true);
-    }
-    $elapsed = $this->elapsed();
-    $this->trace[] = $elapsed . ': ' . $msg;
-  }
-
-  /**
-   * Elapsed time in milliseconds
-   * @todo merge into trace()
-   */
-  private function elapsed() {
-    $time = microtime(true);
-    return round(($time - $this->start) * 1000);
-  }
-
-  private function start($task) {
-    $this->segments[$task]['start'] = microtime(true);
-  }
-
-  private function stop($task) {
-    $run_time = round((microtime(true) - $this->segments[$task]['start']) * 100)* 10;
-    $total = isset($this->segments[$task]['total'])
-      ? $this->segments[$task]['total'] : 0;
-    $total += $run_time;
-    $this->segments[$task]['total'] = $total;
-    $this->trace("${run_time}ms (total now ${total}ms) on $task");
-  }
 
   /**
    * Reset the cache
@@ -240,7 +298,7 @@ class CRM_Clif_Engine {
   }
 
   /**
-   * Generates this list if not already, or pulls from within object
+   * Generates this list if not already, or pulls from within the stash
    * @return array in "index format"
    */
   private function getContacts() {
@@ -256,9 +314,19 @@ class CRM_Clif_Engine {
 
   /**
    * Get the index list from the stash, or give back the raw list.
+   *
+   * For non-stashable (or cacheable) list the $clif itself contains the
+   * values. For stashable values the "stash" acts as the temporary store.
+   * This pattern avoids the very long keys from raw lists and also allows for
+   * some lists to be held in the class in case they get repeated. This maybe
+   * excessive optimiasation and the $stash is maybe not adding much.
+   *
    * @return array in "index format"
    */
   private function fromStash($clif) {
+    if (isset($clif['list'])) {
+      return $clif['list'];
+    }
     switch ($clif['type']) {
     case 'raw':
       $this->trace('get raw ' . count($clif) . ' records');
@@ -315,16 +383,33 @@ class CRM_Clif_Engine {
   }
 
   /**
+   * Test to see if this list is worth holding in the stash
+   * @param $clif
+   * @return Boolean
+   */
+  private function isStashable($clif) {
+    // These ones are not worth overhead of stashing (may need tuning)
+    $exclude = array('empty', 'union', 'intersection', 'raw');
+    return !in_array($clif['type'], $exclude);
+  }
+
+  /**
    * Walk query tree, validate, fetch and stash lists
    *
-   * For non-raw filters adds the following to each $clif row:
+   * For stashable filters adds the following to each $clif row:
    * - cache_key
+   *
+   * For non-stashable filters the result is added to the $clif['list']
+   *
+   * For all
    * - description
    *
    * Stashes the list in $this->stash[$cache_key]
    *
-   * @param &$clif - collection of filters in [id, filter] format
+   * @param &$clif - single CLIF filter in [type, params] format
    * @param $params = []
+   * - dry_run - Boolean if true skips expensive steps to allow validation and
+   *             identification of cache keys for flushing
    * @returns null
    * @throws
    */
@@ -339,15 +424,21 @@ class CRM_Clif_Engine {
     // extract properties and fill in blank params if needed
     $type = $clif['type'];
     $clif_params = isset($clif['params']) ? $clif['params'] : [];
-    $cache_key = $this->filterToKey($type, $clif_params);
-    $clif['cache_key'] = $cache_key;
+    $stashable = $this->isStashable($clif);
+    if ($stashable) {
+      $cache_key = $this->filterToKey($type, $clif_params);
+      $clif['cache_key'] = $cache_key;
+    }
     $clif['description'] = self::debugDescribe($clif);
     $this->trace("starting $clif[type] - $clif[description]");
     if ($type == 'raw') {
       return; // dont stash raw lists
     }
-    elseif (isset($this->stash[$cache_key])) {
+    elseif ($stashable && isset($this->stash[$cache_key])) {
       $this->trace('already loaded');
+    }
+    elseif (isset($clif['list'])) {
+      $this->trace('already generated (this should not happen!)');
     }
     else {
       // Handle Boolean operator dependancies
@@ -358,6 +449,7 @@ class CRM_Clif_Engine {
         }
       }
       if (!$p['dry_run']) {
+        $this->start('get');
         switch ($type) {
         case 'union':
           $list = $this->union($clif_params);
@@ -374,14 +466,22 @@ class CRM_Clif_Engine {
         case 'raw':
           $list = $clif_params;
           break;
+        case 'api3':
+          $result = $this->api3(array('clif_params' => $clif_params));
+          $list = $result['raw'];
+          break;
         default:
-          $this->start('get');
           // get the list (either from cache or generating raw
           $list = $this->getList($clif, $p);
-          $this->stop('get');
-          $this->trace(count($list) . " contacts loaded");
         }
-      $this->stash[$cache_key] = $list;
+        $this->trace(count($list) . " contacts loaded");
+        $this->stop('get');
+        if ($stashable) {
+          $this->stash[$cache_key] = $list;
+        }
+        else {
+          $clif['list'] = $list;
+        }
       }
     }
   }
@@ -581,6 +681,60 @@ class CRM_Clif_Engine {
       throw new Exception('bad filter type: ' . $clif_type);
     }
   }
+
+  ///////////////////////////////////////////////////////////////////////////
+  // Trace and debug functions
+  /**
+   * Array of trace reports
+   */
+  public $trace = [];
+
+  /**
+   * Array of profiling times
+   */
+  private $segments = [];
+
+  /**
+   * Integer millisecond start time
+   */
+  private $start = 0;
+
+  /**
+   * Add a time-stamped record note to the trace record:
+   * @param string $msg
+   */
+  private function trace($msg) {
+    if (!$this->start) {
+      $this->start = microtime(true);
+    }
+    $elapsed = $this->elapsed();
+    $this->trace[] = $elapsed . ': ' . $msg;
+  }
+
+  /**
+   * Elapsed time in milliseconds
+   * @todo merge into trace()
+   */
+  private function elapsed() {
+    $time = microtime(true);
+    return round(($time - $this->start) * 1000);
+  }
+
+  private function start($task) {
+    $this->segments[$task]['start'] = microtime(true);
+  }
+
+  private function stop($task) {
+    $run_time = round((microtime(true) - $this->segments[$task]['start']) * 100)* 10;
+    $total = isset($this->segments[$task]['total'])
+      ? $this->segments[$task]['total'] : 0;
+    $total += $run_time;
+    $this->segments[$task]['total'] = $total;
+    $this->trace("${run_time}ms (total now ${total}ms) on $task");
+  }
+
+  /////////////////////////////////////////////////////////////////////////////
+  // Caching functions
 
   /**
    * #futurerole
