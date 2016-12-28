@@ -26,14 +26,27 @@ class CRM_Clif_Engine {
    *
    * @params array
    * - clif
+   * - max_cache_age - seconds
+   * - cache (required) object implementing CRM_Utils_Cache_Interface
+   * - inject array of interfaces and values to use for unit testing
+   *   - api3_callable
+   *   - time - timestamp in seconds
    */
   public function __construct(array $params) {
     $defaults = array(
       'clif' => false,
+      'max_cache_age' => 300, // seconds
+      'cache' => false,
       'inject' => [],
     );
     $p = $params + $defaults;
     // $this->cacheEngine = new AgcCache();
+    if (!$p['cache']) { // todo should check the type?
+      throw new Exception("missing cache parameter");
+    }
+    if (!($p['cache'] instanceof CRM_Utils_Cache_Interface)) {
+      throw new Exception("bad cache");
+    }
     if (!$p['clif']) {
       throw new Exception("missing clif parameter");
     }
@@ -41,11 +54,24 @@ class CRM_Clif_Engine {
     // set up injectables
     $p['inject'] += array(
       'api3' => "civicrm_api3",
+      'time' => time(),
     );
+    $this->max_cache_age = $p['max_cache_age'];
     $this->api3_callable = $p['inject']['api3'];
+    $this->time = $p['inject']['time'];
   }
 
+  /**
+   * Callable holding CiviCRM API V3 interface.
+   * This value is mockable during contstruction.
+   */
   private $api3_callable;
+
+  /**
+   * Integer based timestamp
+   * This value is mockable during contstruction.
+   */
+  private $time;
 
   /**
    * Wrapper around the CiviCRM API V3
@@ -195,55 +221,16 @@ class CRM_Clif_Engine {
   private static $safe = 1; // propose 0=high performance, 1=regular, 2=debug
 
   /**
-   * List of contact lists by cache_key
+   * List of contact lists by stash_key
    * This is a bit like a temporary in memmory cache of lists
    */
   private $stash = [];
 
   /**
-   * List of contact lists by cache_key
+   * List of contact lists by stash_key
    */
   private $contacts = [];
 
-
-  /**
-   * Reset the cache
-   *
-   * If passed a falsy array then clears entire cache, otherwise just the
-   * chapters listed. If passed `true` then clears current filter only.
-   *
-   * @params $chapters boolean|array (optional)
-   * @returns number of sets flushed | null if doing complete flush
-   * @tested via quick.clearcache
-   */
-  private function clearCache($chapters = false) {
-    if ($chapters === true) {
-      $chapters = $this->getCacheChapters();
-    }
-    if ($chapters) {
-      $count = 0;
-      foreach ($chapters AS $chapter) {
-        $result = $this->cache->deleteChapter($chapter);
-        $this->trace($chapter . ($result ? '' : ' not') . ' cleared');
-        if ($result) {
-          $count++;
-        }
-      }
-      return $count;
-    }
-    else {
-      $this->cache->destroy();
-    }
-  }
-
-  /**
-   * Testing function to list contents of cache repository
-   * @returns array
-   * @tested via quick.clearcache
-   */
-  private function listCache() {
-    return $this->cache->listChapters();
-  }
 
   /**
    * Generates this list if not already and counts the contacts.
@@ -335,7 +322,7 @@ class CRM_Clif_Engine {
       $this->trace('got empty');
       return [];
     default:
-      return $this->stash[$clif['cache_key']];
+      return $this->stash[$clif['stash_key']];
     }
   }
 
@@ -397,25 +384,22 @@ class CRM_Clif_Engine {
    * Walk query tree, validate, fetch and stash lists
    *
    * For stashable filters adds the following to each $clif row:
-   * - cache_key
+   * - stash_key
    *
    * For non-stashable filters the result is added to the $clif['list']
    *
    * For all
    * - description
    *
-   * Stashes the list in $this->stash[$cache_key]
+   * Stashes the list in $this->stash[$stash_key]
    *
    * @param &$clif - single CLIF filter in [type, params] format
    * @param $params = []
-   * - dry_run - Boolean if true skips expensive steps to allow validation and
-   *             identification of cache keys for flushing
    * @returns null
    * @throws
    */
   private function fillStash(&$clif, $params = []) {
     $defaults = array(
-      'dry_run' => false
     );
     // merge params in with defaults
     $p = $params + $defaults;
@@ -426,15 +410,15 @@ class CRM_Clif_Engine {
     $clif_params = isset($clif['params']) ? $clif['params'] : [];
     $stashable = $this->isStashable($clif);
     if ($stashable) {
-      $cache_key = $this->filterToKey($type, $clif_params);
-      $clif['cache_key'] = $cache_key;
+      $stash_key = $this->clifToStashKey($clif);
+      $clif['stash_key'] = $stash_key;
     }
     $clif['description'] = self::debugDescribe($clif);
     $this->trace("starting $clif[type] - $clif[description]");
     if ($type == 'raw') {
       return; // dont stash raw lists
     }
-    elseif ($stashable && isset($this->stash[$cache_key])) {
+    elseif ($stashable && isset($this->stash[$stash_key])) {
       $this->trace('already loaded');
     }
     elseif (isset($clif['list'])) {
@@ -448,40 +432,38 @@ class CRM_Clif_Engine {
           $this->fillStash($filter, $p);
         }
       }
-      if (!$p['dry_run']) {
-        $this->start('get');
-        switch ($type) {
-        case 'union':
-          $list = $this->union($clif_params);
-          break;
-        case 'intersection':
-          $list = $this->intersect($clif_params);
-          break;
-        case 'not':
-          $list = $this->not($clif_params);
-          break;
-        case 'empty':
-          $list = [];
-          break;
-        case 'raw':
-          $list = $clif_params;
-          break;
-        case 'api3':
-          $result = $this->api3(array('clif_params' => $clif_params));
-          $list = $result['raw'];
-          break;
-        default:
-          // get the list (either from cache or generating raw
-          $list = $this->getList($clif, $p);
-        }
-        $this->trace(count($list) . " contacts loaded");
-        $this->stop('get');
-        if ($stashable) {
-          $this->stash[$cache_key] = $list;
-        }
-        else {
-          $clif['list'] = $list;
-        }
+      $this->start('get');
+      switch ($type) {
+      case 'union':
+        $list = $this->union($clif_params);
+        break;
+      case 'intersection':
+        $list = $this->intersect($clif_params);
+        break;
+      case 'not':
+        $list = $this->not($clif_params);
+        break;
+      case 'empty':
+        $list = [];
+        break;
+      case 'raw':
+        $list = $clif_params;
+        break;
+      case 'api3':
+        $result = $this->api3(array('clif_params' => $clif_params));
+        $list = $result['raw'];
+        break;
+      default:
+        // get the list (either from cache or generating raw
+        $list = $this->getList($clif, $p);
+      }
+      $this->trace(count($list) . " contacts loaded");
+      $this->stop('get');
+      if ($stashable) {
+        $this->stash[$stash_key] = $list;
+      }
+      else {
+        $clif['list'] = $list;
       }
     }
   }
@@ -576,23 +558,22 @@ class CRM_Clif_Engine {
    */
   private function getList($clif, $params = []) {
     $defaults = [
-      'dry_run' => false
       ];
     // merge params in with defaults
     $p = $params + $defaults;
     $clif_params = isset($clif['params']) ? $clif['params'] : [];
     $type = $clif['type'];
-    // make a unique cache_key for this filter
-    $cache_key = self::filterToKey($type, $clif_params);
-    // hash the cache_key to filename safe string:
-    $chapter = self::filterChapter($type, $cache_key);
-    $this->chapters[$chapter] = true;
+    // make a unique stash_key for this filter
+    $stash_key = self::clifToStashKey($clif);
+    // hash the stash_key to filename safe string:
+    $cache_key = self::filterToHashKey($type, $stash_key);
+    $this->cache_keys[$cache_key] = true;
     // @todo - decide pattern for marking some filters as non-cachalbe
     $no_cache = false;
+    $this->trace("stash_key: $stash_key");
     $this->trace("cache_key: $cache_key");
-    $this->trace("chapter: $chapter");
     // attempt cache load
-    $list = ($no_cache ? false : $this->attemptFilterCacheRead($chapter, $cache_key));
+    $list = ($no_cache ? false : $this->attemptFilterCacheRead($cache_key, $stash_key));
     if ($list) {
       $this->trace('cache hit: ' . count($list) . ' recs');
     }
@@ -600,52 +581,15 @@ class CRM_Clif_Engine {
       // get meta ([sql, contact_id])
       $meta = $this->buildSqlMeta($type, $clif_params);
       $this->trace("sql:\n" .$meta['sql']);
-      if ($p['dry_run']) {
-        return [];
-      }
       $this->start('running sql');
       $list = AgcDB::sqlToIdIndex($meta['sql'], ['field' => $meta['contact_id']]);
       $this->stop('running sql');
       if (!$no_cache) {
-        $this->cacheWrite($chapter, $cache_key, $list);
+        $this->cacheWrite($cache_key, $stash_key, $list);
       }
     }
     return $list;
   }
-
-  /**
-   * Get a list of chapters for this filter
-   * @return array
-   */
-  private function getCacheChapters() {
-    $this->trace('starting get chapters');
-    $this->start('get chapters');
-    $this->fillStash($this->root, ['dry_run' => true]);
-    $this->stop('get chapters');
-    return array_keys($this->chapters);
-  }
-
-  /**
-   * Validates a filter
-   * @return false (on valid) and string on error
-   */
-  private function isInvalid() {
-    $this->trace('starting get chapters');
-    $this->start('get chapters');
-    try {
-      $this->fillStash($this->root, ['dry_run' => true]);
-      // we got here so all good:
-      $error = false;
-    } catch (Exception $e) {
-      // uh-oh
-      $error = $e->getMessage();
-      $this->trace('got: ' . $error .
-        ' at ' . $e->getFile() . ' #' . $e->getLine());
-    }
-    $this->stop('get chapters');
-    return $error;
-  }
-
 
   /**
    * Translate a filter into SQL
@@ -739,26 +683,42 @@ class CRM_Clif_Engine {
   /**
    * #futurerole
    *
-   * @param $chapter - cache "chapter" ID
-   * @param $cache_key - hashed absolute identifier of list
+   * @param $cache_key - cache "cache_key" ID
+   * @param $stash_key - hashed absolute identifier of list
    * @param $list
    * @returns a list if successful, otherwise returns null
    */
-  private function attemptFilterCacheRead($chapter, $cache_key) {
-    $chapter_age = $this->cache->age($chapter);
+  private function attemptFilterCacheRead($cache_key, $stash_key) {
+    $age = $this->cache->age($cache_key);
+    $cache_key_contents = $this->cacheRead($cache_key);
     // set cache for 10 minutes
-    if ($chapter_age && $chapter_age < 600) {
-      $chapter_contents = $this->fileRead($chapter);
-      if (isset($chapter_contents[$cache_key])) {
-        return $chapter_contents[$cache_key];
+    if ($age && $age < 600) {
+      if (isset($cache_key_contents[$stash_key])) {
+        return $cache_key_contents[$stash_key];
       }
       else {
-        watchdog('agcquick',
-          "we have cache_key collision!! what's the chances of that!!  %chapter %cache_key",
-          ['%chapter' => $chapter, '%cache_key' => $cache_key], WATCHDOG_NOTICE);
+        watchdog('clif',
+          "we have stash_key collision!! " .
+         " r %stash_key",
+         array(
+           '%cache_key' => $cache_key,
+           '%stash_key' => $stash_key), WATCHDOG_NOTICE);
       }
     }
   }
+
+  /**
+   * Thin wrapper around $cache->get to read a data blob
+   * @param $key string
+   * @returns mixed
+   */
+  private function cacheRead($key) {
+    $this->start('reading cache');
+    $value = $this->cache->get($key);
+    $this->stop('reading cache');
+    return $value;
+  }
+
 
   /**
    * Update the cache with a list of contacts.
@@ -766,78 +726,61 @@ class CRM_Clif_Engine {
    * #futurerole
    *
    * @param $chapter - cache "chapter" ID
-   * @param $cache_key - hashed absolute identifier of list
+   * @param $stash_key - hashed absolute identifier of list
    * @param $list
    */
-  private function cacheWrite($chapter, $cache_key, $list) {
-    $this->fileWrite($chapter, [$cache_key => $list]);
+  private function cacheWrite($chapter, $stash_key, $list) {
+    $key = $chapter;
+    $value = array(
+       $stash_key => $list,
+    );
+    $this->start('writing cache');
+    $this->cache->set($key, $value);
+    $this->stop('writing cache');
   }
 
   /**
    * Core function #futurerole
    * Make a filter definition into a string
    */
-  private static function filterToKey($clif_type, $clif) {
-    if ($clif_type == 'perm') {
-      // if given a user, the cache_key is really the users permissions:
-      $clif = AgcPerm::permissionString($clif);
-    }
-    // fixme - for security reasons maybe should always be json encoded?
-    return $clif_type . ':' . (is_string($clif) ? $clif : json_encode($clif));
+  protected static function clifToStashKey($clif) {
+    return $clif['type'] . ':' . json_encode($clif['params']);
   }
 
   /**
-   * Create a file name safe hash based on clif_type and cache_key
-   * #futurerole
+   * Create a file name safe hash based on clif_type and stash_key
    * @param $clif_type
-   * @param $cache_key
+   * @param $stash_key - essentially JSON version of type and params
    * @returns string
    */
-  private static function filterChapter($clif_type, $cache_key) {
-    return substr($clif_type, 0, 2) . self::hashKey($cache_key);
+  private static function filterToHashKey($clif_type, $stash_key) {
+    return substr($clif_type, 0, 2) . sha1($stash_key);
   }
 
   /**
-   * Hash a cache_key into filename friendly string
-   * #futurerole
-   * @param $cache_key string
-   * @param $cache_key string
+   * Reset the cache
+   *
+   * If passed a falsy array then clears entire cache, otherwise just the
+   * cache_keys listed. If passed `true` then clears current filter only.
+   *
+   * @params $cache_keys boolean|array (optional)
+   * @returns number of sets flushed | null if doing complete flush
    */
-  private static function hashKey($cache_key) {
-    return sha1($cache_key);
+  private function clearCache($cache_keys = false) {
+    if ($cache_keys === true) {
+      $cache_keys = $this->getCacheKeys();
+    }
+    if ($cache_keys) {
+      foreach ($cache_keys AS $key) {
+        $this->cache->delete($key);
+        $this->trace($key . ' cleared');
+      }
+      return count($cache_keys);
+    }
+    else {
+      $this->cache->flush();
+    }
   }
 
-  /**
-   * Read a data blob from the "cache"
-   * #futurerole
-   * @param $chapter string
-   * @returns an array [$cache_key => [array]]
-   */
-  private function fileRead($chapter) {
-    $this->start('reading file');
-    $text = $this->cache->getRaw($chapter);
-    $this->stop('reading file');
-    $this->start('decoding');
-//    $decoded = json_decode($text, true);
-    $decoded = unserialize($text);
-    $this->stop('decoding');
-    return $decoded;
-  }
-
-  /**
-   * Use the cache to write a data blob
-   * #futurerole
-   * @param $chapter string
-   * @param $contacts array
-   */
-  private function fileWrite($chapter, $contacts) {
-    $this->start('encoding');
-//    $data = json_encode($contacts);
-    $data = serialize($contacts);
-    $this->stop('encoding');
-    $this->start('writing file');
-    $this->cache->putRaw($chapter, $data);
-    $this->stop('writing file');
-  }
 
 }

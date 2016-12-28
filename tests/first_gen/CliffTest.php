@@ -3,12 +3,17 @@
 use PHPUnit\Framework\TestCase;
 
 // fixme - there should be a pattern for this
+// see http://civicrm.stackexchange.com/questions/16418/class-naming-and-namespaces-best-practice-as-an-extension-author
 require_once realpath(dirname(__FILE__)) .  '/../../CRM/Clif/CRM_Clif_Engine.php';
 
+// $_ENV["CIVICRM_PATH"]
+$civicrm_root = '/var/local/www/election.greens.org.au/htdocs/profiles/es_dev/modules/contrib/civicrm';
+require_once "$civicrm_root/CRM/Utils/Cache/Interface.php";
 
 class AgcClifTest extends TestCase {
 
   public function testGetLogic() {
+    $cache = new TestCache(array());
     $api_mock = function($entity, $action, $params) {
       $values = array(
          array(
@@ -62,7 +67,7 @@ class AgcClifTest extends TestCase {
     $tests = array(
       array(
         'title' => 'empty',
-        'clif' => array('type' => 'empty'), // bad case
+        'clif' => array('type' => 'empty'), // todo bad case
         'expected' => array()
       ),
       array(
@@ -99,6 +104,7 @@ class AgcClifTest extends TestCase {
       // Act
       $clif = new CRM_Clif_Engine(array(
         'clif' => $test['clif'],
+        'cache' => $cache,
         'inject' => array(
           'api3' => $api_mock
         )
@@ -178,6 +184,28 @@ class AgcClifTest extends TestCase {
     }
 
   }
+}
 
+/**
+ * Cache mock stolen from CRM_Utils_Cache_Arraycache
+ */
+class TestCache implements CRM_Utils_Cache_Interface {
+  private $_cache;
+  public function __construct($config) {
+    $this->_cache = array();
+  }
+  public function set($key, &$value) {
+    $this->_cache[$key] = $value;
+  }
+  public function get($key) {
+    return CRM_Utils_Array::value($key, $this->_cache);
+  }
+  public function delete($key) {
+    unset($this->_cache[$key]);
+  }
+  public function flush() {
+    unset($this->_cache);
+    $this->_cache = array();
+  }
 }
 
