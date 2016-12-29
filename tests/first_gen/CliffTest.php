@@ -6,8 +6,10 @@ use PHPUnit\Framework\TestCase;
 // see http://civicrm.stackexchange.com/questions/16418/class-naming-and-namespaces-best-practice-as-an-extension-author
 require_once realpath(dirname(__FILE__)) .  '/../../CRM/Clif/CRM_Clif_Engine.php';
 
-// $_ENV["CIVICRM_PATH"]
-$civicrm_root = '/var/local/www/election.greens.org.au/htdocs/profiles/es_dev/modules/contrib/civicrm';
+if (empty($civicrm_root)) {
+  $civicrm_root = getenv("CIVICRM_ROOT");
+}
+
 require_once "$civicrm_root/CRM/Utils/Cache/Interface.php";
 
 class AgcClifTest extends TestCase {

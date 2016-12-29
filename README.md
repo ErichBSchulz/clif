@@ -38,7 +38,14 @@ This CLIF will combine the members of OSSC and OSUG:
 
 # Testing
 
-You can run the unit tests of core classes with phpunit from within the root directory:
+Because Erich is clueless and currently on CiviCRM 4.6 for a bit longer you
+need to declare an environment variable so phpunit test codes can find the bits
+of CiviCRM it needs:
+
+    declare -x CIVICRM_ROOT="[[your module path]]/civicrm"
+
+With that hack you can then
+run the unit tests of core classes with phpunit from within the root directory:
 
     phpunit tests
 
@@ -70,16 +77,9 @@ expect it to be released fully under a permissive licence very shortly.
 # Example implementation
 
 Within the `historic/protype` folder are some of the source files that
-demonstrate the first implementation in php and angular. These are provide
+demonstrate the first implementation in php and angular. These are provided
 merely to add substance to the discusion of how best to implement the CLIF
 notion into CiviCRM.
-
-# Mistakes made
-
-Combolists and all the pre-qif formats
-
-Initially making `filters` the preferred interchange format. Much cleaner to
-use a single filter, which maybe an `intersection` or `union` type.
 
 # Open questions
 
