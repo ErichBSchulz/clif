@@ -41,8 +41,10 @@ function civicrm_api3_contact_getclif($params) {
     throw new API_Exception('Can only return ID until Erich is pointed in right
       direction');
   }
+  $cache = new CRM_Utils_Cache_SerializeCache(array());
   $clif = new CRM_Clif_Engine(array(
     'clif' => $p['clif'],
+    'cache' => $cache,
   ));
   $contacts = $clif->get(array(
     'offset' => (int)$p['offset'],
