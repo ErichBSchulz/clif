@@ -222,12 +222,6 @@ class CRM_Clif_Engine {
 
   /**
    * List of contact lists by stash_key
-   * This is a bit like a temporary in memmory cache of lists
-   */
-  private $stash = [];
-
-  /**
-   * List of contact lists by stash_key
    */
   private $contacts = [];
 
@@ -291,26 +285,24 @@ class CRM_Clif_Engine {
   private function getContacts() {
     $this->trace('starting get');
     // list already generated, so return that and get out of here:
-    if ($this->contacts) {
-      return $this->contacts;
+    if ($list = $this->fromStash()) {
+      return $list;
     }
     $this->fillStash($this->root);
-    $this->contacts = $this->fromStash($this->root);
-    return $this->contacts;
+    return $this->fromStash();
   }
 
   /**
    * Get the index list from the stash, or give back the raw list.
    *
-   * For non-stashable (or cacheable) list the $clif itself contains the
-   * values. For stashable values the "stash" acts as the temporary store.
-   * This pattern avoids the very long keys from raw lists and also allows for
-   * some lists to be held in the class in case they get repeated. This maybe
-   * excessive optimiasation and the $stash is maybe not adding much.
-   *
    * @return array in "index format"
    */
-  private function fromStash($clif) {
+  private function fromStash($clif = false) {
+    if ($clif === false) {
+      // this only happens when doing initial test in getContacts()
+      $clif = $this->root;
+      $testing_root = true;
+    }
     if (isset($clif['list'])) {
       return $clif['list'];
     }
@@ -322,7 +314,9 @@ class CRM_Clif_Engine {
       $this->trace('got empty');
       return [];
     default:
-      return $this->stash[$clif['stash_key']];
+      if (!$testing_root) {
+        throw new Exception ('attempt get from unprocessed filter');
+      }
     }
   }
 
@@ -386,12 +380,9 @@ class CRM_Clif_Engine {
    * For stashable filters adds the following to each $clif row:
    * - stash_key
    *
-   * For non-stashable filters the result is added to the $clif['list']
-   *
    * For all
-   * - description
-   *
-   * Stashes the list in $this->stash[$stash_key]
+   * - description - for debugging
+   * - list - in "index format"
    *
    * @param &$clif - single CLIF filter in [type, params] format
    * @param $params = []
@@ -418,11 +409,8 @@ class CRM_Clif_Engine {
     if ($type == 'raw') {
       return; // dont stash raw lists
     }
-    elseif ($stashable && isset($this->stash[$stash_key])) {
-      $this->trace('already loaded');
-    }
     elseif (isset($clif['list'])) {
-      $this->trace('already generated (this should not happen!)');
+      $this->trace('already generated');
     }
     else {
       // Handle Boolean operator dependancies
@@ -459,12 +447,7 @@ class CRM_Clif_Engine {
       }
       $this->trace(count($list) . " contacts loaded");
       $this->stop('get');
-      if ($stashable) {
-        $this->stash[$stash_key] = $list;
-      }
-      else {
-        $clif['list'] = $list;
-      }
+      $clif['list'] = $list;
     }
   }
 
