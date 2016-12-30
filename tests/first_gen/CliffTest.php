@@ -2,16 +2,12 @@
 
 use PHPUnit\Framework\TestCase;
 
-// fixme - there should be a pattern for this
-// see http://civicrm.stackexchange.com/questions/16418/class-naming-and-namespaces-best-practice-as-an-extension-author
-require_once realpath(dirname(__FILE__)) .  '/../../CRM/Clif/CRM_Clif_Engine.php';
+// fixme - how to do this bootstrapping "properly"?
+require_once 'bootstrap.php';
 
-if (empty($civicrm_root)) {
-  $civicrm_root = getenv("CIVICRM_ROOT");
-}
-
-require_once "$civicrm_root/CRM/Utils/Cache/Interface.php";
-
+/**
+ * Unit tests of the CLIF engine that do not require a bootstrapped CiviCRM
+ */
 class AgcClifTest extends TestCase {
 
   public function testGetLogic() {
@@ -35,7 +31,7 @@ class AgcClifTest extends TestCase {
         );
     };
 
-    // Arrange
+    // Arrange - some simple lists
     $list_A = array(1, 2, 3);
     $list_B = array(3, 4, 5);
     $list_C = array(6, 8);
@@ -190,6 +186,7 @@ class AgcClifTest extends TestCase {
 
 /**
  * Cache mock stolen from CRM_Utils_Cache_Arraycache
+ * @fixme move to own file
  */
 class TestCache implements CRM_Utils_Cache_Interface {
   private $_cache;
