@@ -98,7 +98,8 @@ class CRM_Clif_Engine {
     };
     $enforced_params = array(
       'sequential' => 1,
-      'return' => $returned_field
+      'return' => $returned_field,
+      'options' => array('limit' => 0, 'offset' => 0)
     );
     $clif_params = array(
       'group_id' => array('IN' => array("Qld_All", "L2Vic")),
@@ -249,7 +250,7 @@ class CRM_Clif_Engine {
    * Note this function should not handle sorting.
    * @params $params array
    * - offest integer
-   * - length integer (required)
+   * - limit integer
    * - format string array|raw|string_list
    * @return string|array depending on 'format' parameter
    * @see http://php.net/manual/en/function.array-slice.php
@@ -257,17 +258,14 @@ class CRM_Clif_Engine {
   public function get($params = []) {
     $defaults = [
       'offset' => 0,
-      'length' => false,
+      'limit' => null,
       'format' => 'array',
       ];
     // merge params in with defaults
     $p = $params + $defaults;
-    if (!$p['length']) {
-      throw new Exception('must specify length');
-    }
     // decode from "index format" and slice out the chunk we want
     $contacts = array_slice(
-      $this->getContacts(), $p['offset'], $p['length'], true);
+      $this->getContacts(), $p['offset'], $p['limit'], true);
     switch ($p['format']) {
     case 'array':
       return array_keys($contacts);
@@ -295,6 +293,10 @@ class CRM_Clif_Engine {
   /**
    * Get the index list from the stash, or give back the raw list.
    *
+   * @param $clif array
+   *   Generally a CLIF array with either pregenerated contact list, or a list
+   *   that is self-evedent (ie raw or empty). If no CLIF is passed the
+   *   function will simply return null in the event of an empty list.
    * @return array in "index format"
    */
   private function fromStash($clif = false) {

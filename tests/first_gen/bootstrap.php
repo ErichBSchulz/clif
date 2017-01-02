@@ -11,8 +11,5 @@ require_once "$civicrm_root/civicrm.config.php";
 // see http://civicrm.stackexchange.com/questions/16418/class-naming-and-namespaces-best-practice-as-an-extension-author
 require_once "$extension_root/CRM/Clif/CRM_Clif_Engine.php";
 
-
 $config = CRM_Core_Config::singleton();
 
-//
-// Call a CiviCRM API or class to do something useful

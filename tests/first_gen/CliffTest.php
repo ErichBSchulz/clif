@@ -108,9 +108,7 @@ class AgcClifTest extends TestCase {
         )
       ));
       try {
-        $result = $clif->get(array(
-          'length' => 1000,
-        ));
+        $result = $clif->get(array());
       }
       catch (Exception $e) {
         echo "----trace:\n" . implode($clif->trace, "\n") . "\n----\n";

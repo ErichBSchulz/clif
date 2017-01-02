@@ -7,7 +7,7 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "bin/phpunit tests --color",
+    "test": "bin/phpunit tests/first_gen --color",
     "test:watch": "watch 'npm run --silent test' . -wait=1 -d"
   },
   "repository": {

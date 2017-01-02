@@ -11,25 +11,6 @@ require_once 'bootstrap.php';
 class AgcClifAPITest extends TestCase {
 
   public function testGetLogic() {
-    $cache = new TestCache(array());
-    $api_mock = function($entity, $action, $params) {
-      $values = array(
-         array(
-          "entity_id" => "3",
-          "id" => "503"
-        ),
-         array(
-          "entity_id" => "5",
-          "id" => "505"
-        ),
-      );
-      return array(
-        "is_error" => 0,
-        "version" => 3,
-        "count" => count($values),
-        "values" => $values
-        );
-    };
 
     // Arrange - some simple lists
     $filter_api_group = array(
@@ -43,7 +24,7 @@ class AgcClifAPITest extends TestCase {
         )
       )
     );
-    $filter_api_group = array(
+    $filter_api_tag = array(
       'type' => 'api3',
       'params' => array(
         'entity' => 'EntityTag',
@@ -59,7 +40,7 @@ class AgcClifAPITest extends TestCase {
       array(
         'title' => 'empty',
         'clif' => array('type' => 'empty'), // todo bad case
-        'expected' => array()
+        'expected_count' => array(0,0)
       ),
       array(
         'title' => 'raw',
@@ -67,31 +48,38 @@ class AgcClifAPITest extends TestCase {
           'type' => 'raw',
           'params'=> array(10=>1, 20=>1)
         ),
-        'expected' => array(10,20)
+        'expected_count' => array(2,2)
       ),
       array(
         'title' => 'api group',
         'clif' => $filter_api_group,
-        'expected' => array(3,5)
+        'expected_count' => array(20,30000)
+      ),
+      array(
+        'title' => 'api tag',
+        'clif' => $filter_api_tag,
+        'expected_count' => array(20,12000)
       ),
     );
     foreach ($tests as $test) {
       // Act
       $api_params = array(
         'clif' => $test['clif'],
-        'length' => 100,
       );
 
       $result = civicrm_api3('Contact', 'getclif', $api_params);
 
       // Assert
       $this->assertEquals(0, $result['is_error'], "$test[title] runs ok");
-      $this->assertEquals(
-        $test['expected'],
-        $result['values'],
-        "$test[title] result");
+      $this->assertGreaterThanOrEqual(
+        $test['expected_count'][0],
+        count($result['values']),
+        "$test[title] count");
+      $this->assertLessThanOrEqual(
+        $test['expected_count'][1],
+        count($result['values']),
+        "$test[title] count");
     }
   }
 }
-
 
