@@ -43,6 +43,7 @@ need to declare an environment variable so phpunit test codes can find the bits
 of CiviCRM it needs:
 
     declare -x CIVICRM_ROOT="[[your module path]]/civicrm"
+    declare -x CIVICRM_TEST_CONFDIR="[[your settings directory path]]"
 
 With that hack you can then
 run the unit tests of core classes with phpunit from within the root directory:
