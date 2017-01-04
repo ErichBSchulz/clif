@@ -38,6 +38,7 @@ class CRM_Clif_Engine {
       'max_cache_age' => 300, // seconds
       'cache' => false,
       'inject' => [],
+      'debug' => 1,
     );
     $p = $params + $defaults;
     // $this->cacheEngine = new AgcCache();
@@ -58,6 +59,7 @@ class CRM_Clif_Engine {
     );
     $this->max_cache_age = $p['max_cache_age'];
     $this->api3_callable = $p['inject']['api3'];
+    $this->debug = $p['debug'];
     $this->time = $p['inject']['time'];
   }
 
@@ -72,6 +74,11 @@ class CRM_Clif_Engine {
    * This value is mockable during contstruction.
    */
   private $time;
+
+  /**
+   * Is debug mode active?
+   */
+  private $debug;
 
   /**
    * Wrapper around the CiviCRM API V3
@@ -99,12 +106,14 @@ class CRM_Clif_Engine {
     $enforced_params = array(
       'sequential' => 1,
       'return' => $returned_field,
-      'options' => array('limit' => 0, 'offset' => 0)
+      'options' => array('limit' => 0, 'offset' => 0),
+      'debug' => $this->debug
     );
-    $clif_params = array(
-      'group_id' => array('IN' => array("Qld_All", "L2Vic")),
-      'status' => "Added",
-    );
+//    $clif_params = array(
+//      'group_id' => array('IN' => array("Qld_All", "L2Vic")),
+//      'status' => "Added",
+//    );
+    $clif_params = $p['clif_params']['params'];
     // add in the clif params to the enforced values
     // (first array has precidence)
     $api_params = $enforced_params + $clif_params;
@@ -766,6 +775,4 @@ class CRM_Clif_Engine {
       $this->cache->flush();
     }
   }
-
-
 }

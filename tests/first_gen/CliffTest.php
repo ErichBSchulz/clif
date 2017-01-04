@@ -161,7 +161,7 @@ class AgcClifTest extends TestCase {
         "expect $test_name to have 20 id");
       $this->assertArrayHasKey(30, $filter['params'],
         "expect $test_name to have 30 id");
-      $this->assertEquals(
+     $this->assertEquals(
         array(1 => 3),
         array_count_values($filter['params']), "$test_name values");
     }
