@@ -33,6 +33,7 @@ function civicrm_api3_contact_getclif($params) {
   );
   // merge params in with defaults
   $p = $params + $defaults;
+
   // validate parameters
   if (!$p['clif']) {
     throw new API_Exception('Missing "clif" parameter');

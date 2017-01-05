@@ -93,8 +93,9 @@ class CRM_Clif_Engine {
     $defaults = array (
     );
     $p = $params + $defaults;
-    $entity = "GroupContact";
-    $action = "get"; // filter so only get* allowed?
+    $entity = $p['clif_params']['entity'];
+    // filter so only get* allowed?
+    $action = $p['clif_params']['action'];
     // figure out what value to ask the api for
     switch ($entity) {
     case 'EntityTag':
@@ -109,10 +110,6 @@ class CRM_Clif_Engine {
       'options' => array('limit' => 0, 'offset' => 0),
       'debug' => $this->debug
     );
-//    $clif_params = array(
-//      'group_id' => array('IN' => array("Qld_All", "L2Vic")),
-//      'status' => "Added",
-//    );
     $clif_params = $p['clif_params']['params'];
     // add in the clif params to the enforced values
     // (first array has precidence)
