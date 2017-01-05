@@ -38,7 +38,7 @@ class CRM_Clif_Engine {
       'max_cache_age' => 300, // seconds
       'cache' => false,
       'inject' => [],
-      'debug' => 1,
+      'debug' => 0,
     );
     $p = $params + $defaults;
     // $this->cacheEngine = new AgcCache();
@@ -309,10 +309,13 @@ class CRM_Clif_Engine {
    * @return array in "index format"
    */
   private function fromStash($clif = false) {
-    if ($clif === false) {
+    if ($clif === FALSE) {
       // this only happens when doing initial test in getContacts()
       $clif = $this->root;
-      $testing_root = true;
+      $testing_root = TRUE;
+    }
+    else {
+      $testing_root = FALSE;
     }
     if (isset($clif['list'])) {
       return $clif['list'];
@@ -326,6 +329,7 @@ class CRM_Clif_Engine {
       return [];
     default:
       if (!$testing_root) {
+        //echo implode("\n", $this->trace);
         throw new Exception ('attempt get from unprocessed filter');
       }
     }
@@ -391,7 +395,7 @@ class CRM_Clif_Engine {
    * For stashable filters adds the following to each $clif row:
    * - stash_key
    *
-   * For all
+   * For all filters adds the following
    * - description - for debugging
    * - list - in "index format"
    *
@@ -407,9 +411,8 @@ class CRM_Clif_Engine {
     $p = $params + $defaults;
     // validate clif (throws exception if invalid)
     $this->checkProperlyFormed($clif);
-    // extract properties and fill in blank params if needed
-    $type = $clif['type'];
-    $clif_params = isset($clif['params']) ? $clif['params'] : [];
+    // fill in blank params if needed
+    $clif += array('params' => array());
     $stashable = $this->isStashable($clif);
     if ($stashable) {
       $stash_key = $this->clifToStashKey($clif);
@@ -417,7 +420,7 @@ class CRM_Clif_Engine {
     }
     $clif['description'] = self::debugDescribe($clif);
     $this->trace("starting $clif[type] - $clif[description]");
-    if ($type == 'raw') {
+    if ($clif['type'] == 'raw') {
       return; // dont stash raw lists
     }
     elseif (isset($clif['list'])) {
@@ -426,30 +429,30 @@ class CRM_Clif_Engine {
     else {
       // Handle Boolean operator dependancies
       // recurse down the tree to ensure all dependant filters are fetched
-      if (in_array($type, ['union', 'intersection', 'not'])) {
-        foreach ($clif_params as $filter) {
+      if (in_array($clif['type'], ['union', 'intersection', 'not'])) {
+        foreach ($clif['params'] as &$filter) {
           $this->fillStash($filter, $p);
         }
       }
       $this->start('get');
-      switch ($type) {
+      switch ($clif['type']) {
       case 'union':
-        $list = $this->union($clif_params);
+        $list = $this->union($clif['params']);
         break;
       case 'intersection':
-        $list = $this->intersect($clif_params);
+        $list = $this->intersect($clif['params']);
         break;
       case 'not':
-        $list = $this->not($clif_params);
+        $list = $this->not($clif['params']);
         break;
       case 'empty':
         $list = [];
         break;
       case 'raw':
-        $list = $clif_params;
+        $list = $clif['params'];
         break;
       case 'api3':
-        $result = $this->api3(array('clif_params' => $clif_params));
+        $result = $this->api3(array('clif_params' => $clif['params']));
         $list = $result['raw'];
         break;
       default:
