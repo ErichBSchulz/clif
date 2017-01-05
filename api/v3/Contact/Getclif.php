@@ -29,6 +29,7 @@ function civicrm_api3_contact_getclif($params) {
     'return' => 'id',
     'offset' => 0,
     'length' => null,
+    'debug' => 0, // todo confirm this is the correct pattern..
   );
   // merge params in with defaults
   $p = $params + $defaults;
@@ -50,10 +51,15 @@ function civicrm_api3_contact_getclif($params) {
     'length' => (int)$p['length'],
   ));
 
-  return civicrm_api3_create_success(
+  $result = civicrm_api3_create_success(
     $contacts, //
     $params, // todo ?? clarify best as $p or $params
     'Contact',
     'Get'); // todo get or Get??
+  // todo - is trace the appropriate propoerty
+  if ($p['debug']) {
+    $result['trace'] = $clif->trace;
+  }
+  return $result;
 }
 
