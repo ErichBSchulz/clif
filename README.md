@@ -17,6 +17,26 @@ system.
 
 CLIF allows defining complex list definition in tree simple tree structure:
 
+    "clif": {
+      "type": "union",
+      "params": [
+        { "type": "api3",
+          "params": {
+            "entity": "EntityTag",
+            "action": "get",
+            "params": {
+                "tag_id": {"IN": ["Major Donor"]},
+                "entity_table": "civicrm_contact"}}},
+        { "type": "api3",
+          "params": {
+            "entity": "EntityTag",
+            "action": "get",
+            "params": {
+                "tag_id": {"IN": ["Volunteer"]},
+                "entity_table": "civicrm_contact" }}}]}
+
+This example is non-standard but illustrates a deeper Boolean tree:
+
     {"type": "intersection",
      "params": [
         {"type": "status","params": ["C", "P","X"]},
@@ -28,13 +48,6 @@ CLIF allows defining complex list definition in tree simple tree structure:
              "params": [{"type": "phone","params": {"type": "any"}}]
             }]}]}
 
-This CLIF will combine the members of OSSC and OSUG:
-
-      {"type": "union",
-        "params": [
-          {"type": "pod", "params": {"pod": 266114}},
-          {"type": "pod", "params": {"pod": 256219}}
-      ]}
 
 # Testing
 
@@ -72,7 +85,7 @@ Erich made a thing for the Australian Greens.
 We know it works. We think it has potential to be even better, and we
 think others in the CiviCRM community may benefit.
 
-All Erich's work is currently copyright by the Australian Greens although we
+All Erich's initial work is currently copyright by the Australian Greens although we
 expect it to be released fully under a permissive licence very shortly.
 
 # Example implementation
@@ -81,8 +94,3 @@ Within the `historic/protype` folder are some of the source files that
 demonstrate the first implementation in php and angular. These are provided
 merely to add substance to the discusion of how best to implement the CLIF
 notion into CiviCRM.
-
-# Open questions
-
-* overall architecture
-* support API V3 or V4
