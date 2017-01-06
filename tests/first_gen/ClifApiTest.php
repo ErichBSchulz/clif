@@ -124,26 +124,26 @@ count(*)
     $donors = $tag_clif(array('IN' => array("Major Donor")));
 
     $tests = array(
-//      array(
-//        'title' => 'empty',
-//        'clif' => array('type' => 'empty'), // todo bad case
-//        'expected_count' => 0
-//      ),
-//      array(
-//        'title' => 'raw',
-//        'clif' => array(
-//          'type' => 'raw',
-//          'params'=> array(10=>1, 20=>1)
-//        ),
-//        'expected_count' => 2
-//      ),
-//      array(
-//        'title' => 'raw',
-//        'clif' => array(
-//          'type' => 'all',
-//        ),
-//        'expected_count' => 2
-//      ),
+      array(
+        'title' => 'empty',
+        'clif' => array('type' => 'empty'), // todo bad case
+        'expected_count' => 0
+      ),
+      array(
+        'title' => 'raw',
+        'clif' => array(
+          'type' => 'raw',
+          'params'=> array(10=>1, 20=>1)
+        ),
+        'expected_count' => 2
+      ),
+      array(
+        'title' => 'all',
+        'clif' => array(
+          'type' => 'all',
+        ),
+        'expected_count' => 201
+      ),
       array(
         'title' => 'api group - a',
         'clif' => $admins,

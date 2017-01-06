@@ -463,8 +463,18 @@ class CRM_Clif_Engine {
       $result = $this->api3(array('clif_params' => $clif['params']));
       $list = $result['raw'];
       break;
+    case 'all':
+      // this isn't a pattern we'd want to extend, but "all" feels
+      // like a special case
+      $result = $this->api3(array('clif_params' => array(
+        'action' => 'get',
+        'entity' => 'Contact',
+        'params' => array()
+      )));
+      $list = $result['raw'];
+      break;
     default:
-      throw Exception('unknown CLIF type');
+      throw new Exception('unknown CLIF type');
     }
     $this->trace(count($list) . " contacts loaded");
     $this->stop('get');
@@ -637,7 +647,7 @@ class CRM_Clif_Engine {
         ));
       }
 
-      if ($created && $age < 600) {
+      if ($created && $age < $this->max_cache_age) {
         if (isset($value[$stash_key])) {
           return $value[$stash_key];
         }
@@ -674,11 +684,10 @@ class CRM_Clif_Engine {
    * @param $stash_key - hashed absolute identifier of list
    * @param $list
    */
-  private function cacheWrite($chapter, $stash_key, $list) {
-    $key = $chapter;
+  private function cacheWrite($key, $stash_key, $list) {
     $value = array(
-      'age' => $this->time,
-       $stash_key => $list,
+      'stash_key' => $list,
+      'created' => $this->time,
     );
     $this->start('writing cache');
     $this->cache->set($key, $value);
