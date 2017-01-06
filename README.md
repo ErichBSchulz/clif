@@ -54,7 +54,7 @@ clauses into flexible trees:
                 "entity_table": "civicrm_contact" }}}]}
 
 
-   { "type": "intersection",
+    {"type": "intersection",
      "params": [
        { "type": "api3",
          "params": {
