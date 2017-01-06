@@ -545,6 +545,11 @@ class CRM_Clif_Engine {
 
   /**
    * Reliably negate a set
+   *
+   * @todo:
+   * There is a better way of doing this but this is simple
+   * implementation to start. If the "not" is part of an
+   * interesection set then it should be substracted from there.
    * @return array in "index format"
    */
   private function not($clifs) {
@@ -553,9 +558,12 @@ class CRM_Clif_Engine {
     if (count($clifs) != 1) {
       throw new Exception ('can only negate a single clause');
     }
-    $contacts = $this->getList(['type' => 'all']);
+    $all_clif =array('type' => 'all');
+    $this->fillStash($all_clif);
+    $contacts = $this->fromStash($all_clif);
     $this->trace("from " . count($contacts) . " contacts");
     $clif = $clifs[0];
+    // subract this from all:
     $contacts = array_diff_key($contacts, $this->fromStash($clif));
     $this->trace("now " . count($contacts) . " contacts");
     $this->trace('done negation');

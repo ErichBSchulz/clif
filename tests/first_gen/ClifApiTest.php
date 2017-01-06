@@ -123,6 +123,8 @@ count(*)
     $volunteers = $tag_clif(array('IN' => array("Volunteer")));
     $donors = $tag_clif(array('IN' => array("Major Donor")));
 
+    $total_count = 201;
+    $donors_count = 55;
     $tests = array(
       array(
         'title' => 'empty',
@@ -142,7 +144,7 @@ count(*)
         'clif' => array(
           'type' => 'all',
         ),
-        'expected_count' => 201
+        'expected_count' => $total_count
       ),
       array(
         'title' => 'api group - a',
@@ -177,7 +179,14 @@ count(*)
       array(
         'title' => 'donor tag',
         'clif' => $donors,
-        'expected_count' => 55
+        'expected_count' => $donors_count
+      ),
+      array(
+        'title' => 'non-donors',
+        'clif' => array(
+          'type' => 'not',
+          'params' => array($donors)),
+        'expected_count' => $total_count - $donors_count
       ),
       array(
         'title' => 'donors combined with vollunteers',
@@ -233,9 +242,9 @@ count(*)
         'expected_count' => 55
       ),
     );
-    //echo "--\n##startiing#".__LINE__.' '. __FILE__."\n";
+    echo "--\n##startiing#".__LINE__.' '. __FILE__."\n";
     foreach ($tests as $test) {
-      //echo "--\n##test: ".$test['title']."\n";
+      echo "--\n##test: ".$test['title']."\n";
       // Act
       $api_params = array(
         'clif' => $test['clif'],
@@ -243,7 +252,7 @@ count(*)
       );
       try {
         $result = civicrm_api3('Contact', 'getclif', $api_params);
-        //echo '$api_params: '.json_encode($api_params,JSON_PRETTY_PRINT).' #'.__LINE__.' '. __FILE__."\n";
+        // echo '$api_params: '.json_encode($api_params,JSON_PRETTY_PRINT);
         if ($result['is_error']) {
           // test will fail so some debugging
           echo '$result: '.json_encode($result, JSON_PRETTY_PRINT)."\n";
