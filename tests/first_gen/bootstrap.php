@@ -10,7 +10,7 @@ $extension_root = realpath(dirname(__FILE__) .  '/../..');
 define('CIVICRM_CONFDIR', getenv("CIVICRM_TEST_CONFDIR"));
 
 require_once "$civicrm_root/civicrm.config.php";
-require_once "$civicrm_root/../../custom/melons/a/class.agcdev.php";
+//require_once "$civicrm_root/../../custom/melons/a/class.agcdev.php";
 
 // fixme - there should be a pattern for this
 // see http://civicrm.stackexchange.com/questions/16418/class-naming-and-namespaces-best-practice-as-an-extension-author

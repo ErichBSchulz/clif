@@ -9,14 +9,6 @@
  *
  * eg array(12345 => 1, 13552 => 1) is the internal format for [12345, 13552]
  *
- * todo
- * - type switch
- * - validation checker
- * - split cache into separate injectable glass
- * - cache hack
- * - impmentent API
- *  $params['return'] = 'id';
- *  return civicrm_api3('Contact', 'get', $params);
  */
 
 class CRM_Clif_Engine {
@@ -41,18 +33,20 @@ class CRM_Clif_Engine {
       'debug' => 0,
     );
     $p = $params + $defaults;
-    // $this->cacheEngine = new AgcCache();
-    if (!$p['cache']) { // todo should check the type?
+    // this is the core of this instance:
+    if (!$p['clif']) {
+      throw new Exception("missing clif parameter");
+    }
+    $this->root = $p['clif'];
+    // setup cache
+    if (!$p['cache']) {
       throw new Exception("missing cache parameter");
     }
     if (!($p['cache'] instanceof CRM_Utils_Cache_Interface)) {
       throw new Exception("bad cache");
     }
-    if (!$p['clif']) {
-      throw new Exception("missing clif parameter");
-    }
-    $this->root = $p['clif'];
-    // set up injectables
+    $this->cache = $p['cache'];
+    // set up injectables (usually only required for testing)
     $p['inject'] += array(
       'api3' => "civicrm_api3",
       'time' => time(),
@@ -269,9 +263,9 @@ class CRM_Clif_Engine {
       ];
     // merge params in with defaults
     $p = $params + $defaults;
+    $contacts = $this->getContacts();
     // decode from "index format" and slice out the chunk we want
-    $contacts = array_slice(
-      $this->getContacts(), $p['offset'], $p['limit'], true);
+    $contacts = array_slice($contacts, $p['offset'], $p['limit'], true);
     switch ($p['format']) {
     case 'array':
       return array_keys($contacts);
@@ -314,9 +308,6 @@ class CRM_Clif_Engine {
     else {
       $testing_root = FALSE;
     }
-    if (isset($clif['list'])) {
-      return $clif['list'];
-    }
     switch ($clif['type']) {
     case 'raw':
       $this->trace('get raw ' . count($clif) . ' records');
@@ -325,6 +316,15 @@ class CRM_Clif_Engine {
       $this->trace('got empty');
       return [];
     default:
+      if (isset($clif['list'])) {
+        if (is_array($clif['list'])) {
+          return $clif['list'];
+        }
+        else {
+          echo '------- $clif: '.json_encode($clif,JSON_PRETTY_PRINT).' #'.__LINE__.' '. __FILE__."\n";
+          throw new Exception ('corrupted list');
+        }
+      }
       if (!$testing_root) {
         //echo implode("\n", $this->trace);
         throw new Exception ('attempt get from unprocessed filter');
@@ -360,7 +360,7 @@ class CRM_Clif_Engine {
     // check params
     // 'all' and 'empty' must not have params
     if (in_array($type, ['all', 'empty'])) {
-      if (isset($clif['params'])) {
+      if (isset($clif['params']) && $clif['params'] !== array()) {
         throw new Exception ('cannot have params array on $type');
       }
     }
@@ -412,53 +412,65 @@ class CRM_Clif_Engine {
     $clif += array('params' => array());
     $stashable = $this->isStashable($clif);
     if ($stashable) {
-      $stash_key = $this->clifToStashKey($clif);
+      // make a unique stash_key for this filter
+      $stash_key = $this->jsonKey($clif);
       $clif['stash_key'] = $stash_key;
     }
     $clif['description'] = self::debugDescribe($clif);
-    $this->trace("starting $clif[type] - $clif[description]");
-    if ($clif['type'] == 'raw') {
+    if (in_array($clif['type'], ['raw', 'empty'])) {
+      // exit quickly as nought to do
       return; // dont stash raw lists
     }
     elseif (isset($clif['list'])) {
       $this->trace('already generated');
+      return;
     }
-    else {
-      // Handle Boolean operator dependancies
-      // recurse down the tree to ensure all dependant filters are fetched
-      if (in_array($clif['type'], ['union', 'intersection', 'not'])) {
-        foreach ($clif['params'] as &$filter) {
-          $this->fillStash($filter, $p);
-        }
+    elseif ($stashable) {
+      // hash the stash_key to filename safe string:
+      $cache_key = self::filterToHashKey($clif['type'], $stash_key);
+      $list = $this->attemptFilterCacheRead($cache_key, $stash_key);
+      if (is_array($list)) {
+        $this->trace('cache hit: ' . count($list) . ' recs');
+        $this['list'] = $list;
+        return;
       }
-      $this->start('get');
-      switch ($clif['type']) {
-      case 'union':
-        $list = $this->union($clif['params']);
-        break;
-      case 'intersection':
-        $list = $this->intersect($clif['params']);
-        break;
-      case 'not':
-        $list = $this->not($clif['params']);
-        break;
-      case 'empty':
-        $list = [];
-        break;
-      case 'raw':
-        $list = $clif['params'];
-        break;
-      case 'api3':
-        $result = $this->api3(array('clif_params' => $clif['params']));
-        $list = $result['raw'];
-        break;
-      default:
-        // get the list (either from cache or generating raw
-        $list = $this->getList($clif, $p);
+    }
+    // Handle Boolean operator dependancies
+    // recurse down the tree to ensure all dependant filters are fetched
+    if (in_array($clif['type'], ['union', 'intersection', 'not'])) {
+      foreach ($clif['params'] as &$filter) {
+        $this->fillStash($filter, $p);
       }
-      $this->trace(count($list) . " contacts loaded");
-      $this->stop('get');
-      $clif['list'] = $list;
+    }
+    $this->start('get');
+    switch ($clif['type']) {
+    case 'union':
+      $list = $this->union($clif['params']);
+      break;
+    case 'intersection':
+      $list = $this->intersect($clif['params']);
+      break;
+    case 'not':
+      $list = $this->not($clif['params']);
+      break;
+    case 'empty':
+      $list = [];
+      break;
+    case 'raw':
+      $list = $clif['params'];
+      break;
+    case 'api3':
+      $result = $this->api3(array('clif_params' => $clif['params']));
+      $list = $result['raw'];
+      break;
+    default:
+      throw Exception('unknown CLIF type');
+    }
+    $this->trace(count($list) . " contacts loaded");
+    $this->stop('get');
+    $clif['list'] = $list;
+    if ($stashable) {
+      $this->cacheWrite($cache_key, $stash_key, $list);
     }
   }
 
@@ -541,85 +553,6 @@ class CRM_Clif_Engine {
     return $contacts;
   }
 
-
-  /**
-   * Fetch a list from cache or from database
-   * Attempts a cache read first with `attemptFilterCacheRead())`.
-   * If no cache hit needs to call api and `cacheWrite()`
-   * @param $type
-   * @param $clif
-   * @returns a list in "index format"
-   */
-  private function getList($clif, $params = []) {
-    $defaults = [
-      ];
-    // merge params in with defaults
-    $p = $params + $defaults;
-    $clif_params = isset($clif['params']) ? $clif['params'] : [];
-    $type = $clif['type'];
-    // make a unique stash_key for this filter
-    $stash_key = self::clifToStashKey($clif);
-    // hash the stash_key to filename safe string:
-    $cache_key = self::filterToHashKey($type, $stash_key);
-    $this->cache_keys[$cache_key] = true;
-    // @todo - decide pattern for marking some filters as non-cachalbe
-    $no_cache = false;
-    $this->trace("stash_key: $stash_key");
-    $this->trace("cache_key: $cache_key");
-    // attempt cache load
-    $list = ($no_cache ? false : $this->attemptFilterCacheRead($cache_key, $stash_key));
-    if ($list) {
-      $this->trace('cache hit: ' . count($list) . ' recs');
-    }
-    else {
-      // get meta ([sql, contact_id])
-      $meta = $this->buildSqlMeta($type, $clif_params);
-      $this->trace("sql:\n" .$meta['sql']);
-      $this->start('running sql');
-      $list = AgcDB::sqlToIdIndex($meta['sql'], ['field' => $meta['contact_id']]);
-      $this->stop('running sql');
-      if (!$no_cache) {
-        $this->cacheWrite($cache_key, $stash_key, $list);
-      }
-    }
-    return $list;
-  }
-
-  /**
-   * Translate a filter into SQL
-   *
-   * This is the main switch board #futurerole
-   *
-   * @param $clif_type string uid|poly|primary|task etc
-   * @param $clif filter parameters
-   * @returns array
-   * - sql
-   * - contact_id field name
-   * - [future] description
-   * - [future] cacheable (defaul true)
-   * @todo - deprecated pattern - will move to API based list generation
-   */
-  private function buildSqlMeta($clif_type, $clif) {
-    switch ($clif_type) {
-    case 'uid': // deprecated - see `acl`
-      return [
-        'sql' => AgcPerm::contactSql(['uid' => $clif]),
-          'contact_id' => 'contact_id'
-          ];
-    case 'all': // this is occasionally required for negation '
-      return [
-        'sql' => "SELECT id FROM civicrm_contact",
-        'contact_id' => 'id'
-        ];
-    case 'empty_set':
-      return [
-        'sql' => "SELECT -1 AS entity_id",
-        'contact_id' => 'entity_id'];
-    default:
-      throw new Exception('bad filter type: ' . $clif_type);
-    }
-  }
-
   ///////////////////////////////////////////////////////////////////////////
   // Trace and debug functions
   /**
@@ -675,28 +608,46 @@ class CRM_Clif_Engine {
   // Caching functions
 
   /**
-   * #futurerole
+   * This function provides a safe cache read that verifies that the cached
+   * value is:
+   *
+   * - not older than the allowed age
+   * - stored under an exactly matching JSON key
+   *
+   * This function is very paranoid and arguably could be simpler.
    *
    * @param $cache_key - cache "cache_key" ID
    * @param $stash_key - hashed absolute identifier of list
-   * @param $list
    * @returns a list if successful, otherwise returns null
+   * @todo introduce a pattern that allow each list to have individual TTLs
    */
   private function attemptFilterCacheRead($cache_key, $stash_key) {
-    $age = $this->cache->age($cache_key);
-    $cache_key_contents = $this->cacheRead($cache_key);
-    // set cache for 10 minutes
-    if ($age && $age < 600) {
-      if (isset($cache_key_contents[$stash_key])) {
-        return $cache_key_contents[$stash_key];
+    $value = $this->cacheRead($cache_key);
+    if ($value) {
+      $created = isset($value['created']) ? $value['created'] : FALSE;
+      if ($created) {
+        $age = $this->time - $created;
       }
       else {
-        watchdog('clif',
-          "we have stash_key collision!! " .
-         " r %stash_key",
-         array(
-           '%cache_key' => $cache_key,
-           '%stash_key' => $stash_key), WATCHDOG_NOTICE);
+        // malformed cache entry as missing created property
+        $this->log(array(
+          'level' => 'error',
+          'message' => "Bad log entry for: {key}",
+          'context' => array('key' => $stash_key)
+        ));
+      }
+
+      if ($created && $age < 600) {
+        if (isset($value[$stash_key])) {
+          return $value[$stash_key];
+        }
+        else {
+          $this->log(array(
+            'level' => 'error',
+            'message' => "we have stash_key collision on {key1} - {key2}",
+            'context' => array('key1' => $stash_key, 'key2' => $cache_key)
+          ));
+        }
       }
     }
   }
@@ -726,6 +677,7 @@ class CRM_Clif_Engine {
   private function cacheWrite($chapter, $stash_key, $list) {
     $key = $chapter;
     $value = array(
+      'age' => $this->time,
        $stash_key => $list,
     );
     $this->start('writing cache');
@@ -737,7 +689,7 @@ class CRM_Clif_Engine {
    * Core function #futurerole
    * Make a filter definition into a string
    */
-  protected static function clifToStashKey($clif) {
+  protected static function jsonKey($clif) {
     return $clif['type'] . ':' . json_encode($clif['params']);
   }
 
@@ -775,4 +727,17 @@ class CRM_Clif_Engine {
       $this->cache->flush();
     }
   }
+
+  /*
+   * Wrapper around V3 log API (potentiall we may make this injectable)
+   */
+  protected function log(array $params) {
+    $params += array(
+      'level' => 'warning',
+      'message' => 'no message',
+      'context' => array()
+    );
+    return civicrm_api3('system', 'log', $params);
+  }
+
 }

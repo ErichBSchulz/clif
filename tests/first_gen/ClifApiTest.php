@@ -37,12 +37,6 @@ INNER JOIN civicrm_tests_dev.civicrm_entity_tag et1 ON et1.tag_id=t1.id
 INNER JOIN civicrm_tests_dev.civicrm_contact c1
   ON et1.entity_id=c1.id
 GROUP BY t1.id
-id	name	count(*)
-1	Non-profit	3
-2	Company	5
-3	Government Entity	2
-4	Major Donor	55
-5	Volunteer	53
 
 id	name	count(*)
 1	Non-profit	3
@@ -58,7 +52,7 @@ t2.id, t2.name #--, c1.id, c1.display_name
 FROM civicrm_tests_dev.civicrm_tag t1
 INNER JOIN civicrm_tests_dev.civicrm_entity_tag et1 ON et1.tag_id=t1.id
   AND et1.entity_table = 'civicrm_contact'
-INNER JOIN civicrm_tests_dev.civicrm_contact c1
+LEFT JOIN civicrm_tests_dev.civicrm_contact c1
   ON et1.entity_id=c1.id
 LEFT JOIN civicrm_tests_dev.civicrm_entity_tag et2
   ON et2.entity_id=c1.id
@@ -66,6 +60,7 @@ LEFT JOIN civicrm_tests_dev.civicrm_tag t2
   ON et2.tag_id=t2.id
   AND et2.entity_table = 'civicrm_contact'
 GROUP BY t1.id, t2.id
+
 id	name	id	name	count(*)
 1	Non-profit	1	Non-profit	3
 2	Company	2	Company	5
@@ -75,9 +70,10 @@ id	name	id	name	count(*)
 5	Volunteer	4	Major Donor	28
 5	Volunteer	5	Volunteer	53
 
-id	name	id	name	count(*)
-4	Major Donor	5	Volunteer	28
-5	Volunteer	4	Major Donor	28
+SELECT count(*)
+FROM civicrm_tests_dev.civicrm_contact c1
+count(*)
+201
 
      */
 
@@ -128,19 +124,26 @@ id	name	id	name	count(*)
     $donors = $tag_clif(array('IN' => array("Major Donor")));
 
     $tests = array(
-      array(
-        'title' => 'empty',
-        'clif' => array('type' => 'empty'), // todo bad case
-        'expected_count' => 0
-      ),
-      array(
-        'title' => 'raw',
-        'clif' => array(
-          'type' => 'raw',
-          'params'=> array(10=>1, 20=>1)
-        ),
-        'expected_count' => 2
-      ),
+//      array(
+//        'title' => 'empty',
+//        'clif' => array('type' => 'empty'), // todo bad case
+//        'expected_count' => 0
+//      ),
+//      array(
+//        'title' => 'raw',
+//        'clif' => array(
+//          'type' => 'raw',
+//          'params'=> array(10=>1, 20=>1)
+//        ),
+//        'expected_count' => 2
+//      ),
+//      array(
+//        'title' => 'raw',
+//        'clif' => array(
+//          'type' => 'all',
+//        ),
+//        'expected_count' => 2
+//      ),
       array(
         'title' => 'api group - a',
         'clif' => $admins,
@@ -197,6 +200,38 @@ id	name	id	name	count(*)
           'params' => array($volunteers, $admin_and_subscribers)),
         'expected_count' => 96
       ),
+      array(
+        'title' => 'intersection volunteers and admin sub',
+        'clif' => array(
+          'type' => 'intersection',
+          'params' => array($volunteers, $admin_and_subscribers)),
+        'expected_count' => 17
+      ),
+      array(
+        'title' => 'intersection volunteers and admin sub',
+        'clif' => array(
+          'type' => 'intersection',
+          'params' => array(
+            $volunteers,
+            $admin_and_subscribers,
+            array(
+              'type' => 'union',
+              'params' => array($board, $donors))
+          )),
+        'expected_count' => 10
+      ),
+      array(
+        'title' => 'intersection volunteers and admin sub',
+        'clif' => array(
+          'type' => 'union',
+          'params' => array(
+            $volunteers,
+            array(
+              'type' => 'intersection',
+              'params' => array($board, $donors))
+          )),
+        'expected_count' => 55
+      ),
     );
     //echo "--\n##startiing#".__LINE__.' '. __FILE__."\n";
     foreach ($tests as $test) {
@@ -208,6 +243,7 @@ id	name	id	name	count(*)
       );
       try {
         $result = civicrm_api3('Contact', 'getclif', $api_params);
+        //echo '$api_params: '.json_encode($api_params,JSON_PRETTY_PRINT).' #'.__LINE__.' '. __FILE__."\n";
         if ($result['is_error']) {
           // test will fail so some debugging
           echo '$result: '.json_encode($result, JSON_PRETTY_PRINT)."\n";
@@ -222,7 +258,10 @@ id	name	id	name	count(*)
       // no failure
       $this->assertEquals(0, $result['is_error'], "$test[title] got API error");
       // correct count
-      $this->assertEquals($test['expected_count'], count($result['values']), "$test[title] count is wrong");
+      $this->assertEquals(
+        $test['expected_count'],
+        count($result['values']),
+        "$test[title] count is wrong");
     }
   }
 }

@@ -35,6 +35,34 @@ CLIF allows defining complex list definition in tree simple tree structure:
                 "tag_id": {"IN": ["Volunteer"]},
                 "entity_table": "civicrm_contact" }}}]}
 
+
+   { "type": "intersection",
+     "params": [
+       { "type": "api3",
+         "params": {
+           "entity": "EntityTag",
+           "action": "get",
+           "params": {"tag_id": {"IN": ["Volunteer"]}, "entity_table": "civicrm_contact"}}},
+       { "type": "api3",
+         "params": {
+           "entity": "GroupContact",
+           "action": "get",
+           "params": {"group_id": {"IN": ["Administrators", "Newsletter Subscribers"]}, "status": "Added"}}},
+       { "type": "union",
+         "params": [
+           { "type": "api3",
+             "params": {
+               "entity": "GroupContact",
+               "action": "get",
+               "params": {"group_id": {"IN": ["Advisory Board"]}, "status": "Added"}}},
+           { "type": "api3",
+             "params": {
+               "entity": "EntityTag",
+               "action": "get",
+               "params": {"tag_id": {"IN": ["Major Donor"]}, "entity_table": "civicrm_contact"}}}]}]
+   },
+
+
 This example is non-standard but illustrates a deeper Boolean tree:
 
     {"type": "intersection",
